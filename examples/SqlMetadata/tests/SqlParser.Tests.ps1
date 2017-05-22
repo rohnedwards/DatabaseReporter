@@ -51,7 +51,7 @@ InModuleScope -ModuleName $Module.Name {
             }
         }
     }
-    Describe "Parse SELECT Statements" {
+    Describe "SqlMetaData: Parse SELECT Statements" {
 
         It "Works with extra tabs/spaces/line breaks" {
             $SimpleResult = DumbSqlParse "
