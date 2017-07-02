@@ -1,0 +1,1 @@
+Any examples in here will reference the DatabaseReporter.ps1 file in the parent folder, so make sure you take that into account if you try to move the example module.
