@@ -1441,6 +1441,30 @@ function GetValueFromAst {
                 }
             }
 
+            VariableExpressionAst {
+                $GetVarParams = @{
+                     ValueOnly = $true
+                     Name = $AstNode.VariablePath.UserPath
+                     ErrorAction = 'Stop'
+                }
+
+                if ($AstNode.IsGlobal) {
+                    $GetVarParams.Scope = 'global'
+                }
+                elseif ($AstNode.IsScript) {
+                    $GetVarParams.Scope = 'script'
+                }
+
+                try {
+                    $ReturnValue = Get-Variable @GetVarParams 
+                    return $ReturnValue
+                }
+                catch {
+                    Write-Warning "Error getting value for `$$($GetVarParams.Name): ${_}"
+                    return $null
+                }
+            }
+
             default {
 Write-Debug "GetAstValue: Unsupported node type '$_'"
                 Write-Warning "GetAstValue: Unsupported node type '$_', so returing '[UNKNOWN VALUE]'"
