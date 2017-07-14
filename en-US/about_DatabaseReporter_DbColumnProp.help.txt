@@ -122,48 +122,6 @@ valid properties:
           (Customers.FirstName LIKE 'a%' AND Customers.FirstName LIKE 'e%') AND
           (Customers.LastName LIKE 'a%' OR Customers.LastName LIKE 'e%')
 
-  * QuoteString
-
-      Normally, this isn't a property that needs to be changed. By default, string parameter
-      values are quoted with the single quote ('), and non-string values aren't quoted (which
-      means that technically the quote string is an empty string).
-
-      Using the QuoteString attribute allows the default behavior to be overridden. Non-strings
-      can be quoted, and strings can use a different character, e.g., the double quote ("),
-      instead.
-
-    Example:
-      DbReaderCommand Get-Customer {
-        [MagicDbInfo(
-            FromClause = 'FROM Customers',
-            DbConnectionString = 'FakeConnectionString',
-            DbConnectionType = 'System.Data.SqlClient.SqlConnection'
-        )]
-        param(
-            [MagicDbProp(ColumnName='Customers.CustomerId', QuoteString='"')]
-            [int] $CustomerId,
-            [MagicDbProp(ColumnName='Customers.FirstName')]
-            [string] $FirstName,
-            [MagicDbProp(ColumnName='Customers.LastName')]
-            [string] $LastName
-        )
-      }
-
-      In this example, the numeric -CustomerId parameter is going to have double
-      quotes placed around any values passed. This is for demonstration purposes
-      only, as this would probably invalidate an actual SQL query.
-
-      PS> Get-Customer -CustomerId 123, 345
-
-        SELECT
-          Customers.CustomerId AS CustomerId,
-          Customers.FirstName AS FirstName,
-          Customers.LastName AS LastName
-        FROM
-          Customers
-        WHERE
-          (Customers.CustomerId = "123" OR Customers.CustomerId = "345")
-
 
   * TransformArgument
 

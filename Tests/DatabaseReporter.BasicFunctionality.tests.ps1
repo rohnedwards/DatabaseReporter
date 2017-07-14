@@ -39,4 +39,36 @@ Describe 'Basic Functionality' {
 
         Get-Command -Module $WorkingMod.Name | Where-Object Name -notin HelpTest1, HelpTest2 | Should BeNullOrEmpty
     }
+
+    It 'FromClause works without ''FROM'' keyword' {
+
+        $TestMod = New-Module -Name DBTest -ScriptBlock {
+            $DebugMode = $true
+
+            . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+
+            DbReaderCommand Get-CustomerNoFrom {
+                [MagicDbInfo(
+                    FromClause = 'Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId',
+                    DbConnectionString = 'FakeConnectionString',
+                    DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                )]
+                param(
+                    [MagicDbProp(ColumnName='Customers.CustomerId')]
+                    [int] $CustomerId,
+                    [MagicDbProp(ColumnName='Customers.FirstName')]
+                    [string] $FirstName,
+                    [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
+                    [string] $LastName,
+                    [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
+                    [string] $Title
+                )
+            }
+        } 
+
+        $Expected = "SELECT Customers.CustomerID as CustomerID* FROM Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId WHERE (Customers.CustomerId = 123 OR Customers.CustomerId = 456)" | NormalizeQuery
+        Get-CustomerNoFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
+    }
+    
 }

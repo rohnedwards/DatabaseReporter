@@ -122,7 +122,7 @@ $MyCommandName = $MyCommandMetaData.Name
 
         Write-Verbose "begin PSBoundParameters {"
         foreach ($Param in $PSBoundParameters.GetEnumerator()) {
-            Write-Verbose ("    {0} = {1}{2}" -f $Param.Key, ($Param.Value -join ', '), $(if ($PSBoundDbInfos.ContainsKey($Param.Key)) {' (DBReaderInfo bound)'})) 
+            Write-Verbose ("    {0} = {1}{2}" -f $Param.Key, ($Param.Value -join ', '), $(if ($PSBoundDbInfos.Contains($Param.Key)) {' (DBReaderInfo bound)'})) 
         }
         Write-Verbose "}"
 
@@ -133,7 +133,7 @@ $MyCommandName = $MyCommandMetaData.Name
 
         Write-Verbose "process PSBoundParameters {"
         foreach ($Param in $PSBoundParameters.GetEnumerator()) {
-            Write-Verbose ("    {0} = {1}{2}" -f $Param.Key, ($Param.Value -join ', '), $(if ($PSBoundDbInfos.ContainsKey($Param.Key)) {' (DBReaderInfo bound)'}))
+            Write-Verbose ("    {0} = {1}{2}" -f $Param.Key, ($Param.Value -join ', '), $(if ($PSBoundDbInfos.Contains($Param.Key)) {' (DBReaderInfo bound)'}))
         }
 
         Write-Verbose "}"
@@ -181,33 +181,11 @@ $MyCommandName = $MyCommandMetaData.Name
         $null = $SqlQuerySb.AppendLine(($MyCommandInfo.FromClause.FormattedStrings -join $JoinSpacingString))
 
         # Get WHERE clause info:
+        $CombinedDbReaderInfo = CombineDbReaderInfo -ParamInfoTable $PSBoundDbInfos -Negate $Negate
 
-        # Notice that the actual values of the PSBoundParameters are ignored. Instead, we look for the DbReaderInfo from the $PSBoundDbInfos
-        # table for the actual value(s)
-        foreach ($Param in $PSBoundParameters.GetEnumerator()) {
-Write-Debug "Current param: $($Param.Key)"
-            if ($MyCommandInfo.PropertyParameters.Contains($Param.Key)) {
-                $DbReaderInfos = $PSBoundDbInfos[$Param.Key]
-                
-                if ($DbReaderInfos -eq $null) {
-                    Write-Error "Unable to find DbReaderInfo object for '$($Param.Key)' parameter; exiting..."
-                    return
-                }
-
-                $StringList.Add($DbReaderInfos.ToWhereString())
-
-                if (ContainsMatch -Collection $Negate -ValueToMatch $Param.Key) {
-                    $StringList[-1] = 'NOT {0}' -f $StringList[-1]
-                }
-            }
+        if ($CombinedDbReaderInfo.WhereString) {
+            $SqlQuerySb.AppendLine($CombinedDbReaderInfo.WhereString) | Out-Null
         }
-
-        if ($StringList.Count -gt 0) {
-            $null = $SqlQuerySb.AppendFormat('WHERE{0}', $JoinSpacingString)
-            $null = $SqlQuerySb.AppendLine(($StringList -join " AND$JoinSpacingString"))   # Right now, AND is hard coded. Need to figure out good way to make this configurable
-        }
-
-        $StringList.Clear()
 
         # GROUP BY
         if ($PSBoundParameters.ContainsKey('GroupBy') -and $GroupByList.Count -gt 0) {
@@ -245,18 +223,94 @@ Write-Debug "Current param: $($Param.Key)"
 
             Write-Debug "About to execute:`n$SqlQuery"
 
-            InvokeReaderCommand -Query $SqlQuery @ConnectionParams
+            InvokeReaderCommand -Query $SqlQuery @ConnectionParams -QueryParameters $CombinedDbReaderInfo.QueryParameters
         }
     }
 
     end {
         Write-Verbose "end PSBoundParameters {"
         foreach ($Param in $PSBoundParameters.GetEnumerator()) {
-            Write-Verbose ("    {0} = {1}{2}" -f $Param.Key, ($Param.Value -join ', '), $(if ($PSBoundDbInfos.ContainsKey($Param.Key)) {' (DBReaderInfo bound)'})) 
+            Write-Verbose ("    {0} = {1}{2}" -f $Param.Key, ($Param.Value -join ', '), $(if ($PSBoundDbInfos.Contains($Param.Key)) {' (DBReaderInfo bound)'})) 
        }
         Write-Verbose "}"
     }
 })
+
+function CombineDbReaderInfo {
+<#
+Helper function that takes DBReaderInfo objects and returns a PSObject with
+the following information:
+    * WhereString
+      A string representation of the parameterized WHERE clause.
+
+    * Parameters
+      A hashtable that has any parameters referenced in the WhereString
+
+In the future, this function will probably take on more work...
+#>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Collections.IDictionary] $ParamInfoTable,
+        # Should come directly from the -Negate parameter to the command. This
+        # is needed to know when an entire parameter should be negated
+        [System.Collections.IList] $NegateCollection
+    )
+    
+    end {
+        $QueryParameters = [ordered] @{}
+
+        $AllWhereConditions = foreach ($DbReaderInfoCollection in $ParamInfoTable.GetEnumerator()) {
+            $ParamIndex = 0
+            $ParamNamePrefix = $DbReaderInfoCollection.Name
+
+            $CurrInstanceConditions = foreach ($DbReaderInfoInstance in $DbReaderInfoCollection.Value) {
+                $Values = if ($DbreaderInfoInstance.IsNull) {
+                    # NULLs are special, so no need to do any extra param magic
+                    '{0} {1} NULL' -f $DbReaderInfoInstance.ColumnName, $DbReaderInfoInstance.ComparisonOperator
+                }
+                else {
+                    # Possible to have multiple values, so go through each one,
+                    # add it to the param table, and give it a placeholder string
+                    # for the query. But first, make any necessary transformations
+                    # on the input:
+                   
+                    foreach ($CurrentValue in $DbReaderInfoInstance.Value) {
+                        if ($DbReaderInfoInstance.AllowWildcards) {
+                            # Translate wildcards to valid SQL (this currently assumes WildcardPattern
+                            # can handle this w/o problem
+                            $CurrentValue = (New-Object System.Management.Automation.WildcardPattern $CurrentValue).ToWql()
+                        }
+
+                        if ($DbReaderInfoInstance.TransformArgument -is [scriptblock]) {
+                            $CurrentValue = $CurrentValue | ForEach-Object $DbReaderInfoInstance.TransformArgument
+                        }
+                        
+                        $ParamName = "@${ParamNamePrefix}${ParamIndex}"
+                        $ParamIndex++
+
+                        # Store the parameter in the hash table and emit the string w/ the
+                        # contional operator and parameter name so we can combine it later
+                        '{0} {1} {2}' -f $DbReaderInfoInstance.ColumnName, $DbReaderInfoInstance.ComparisonOperator, $ParamName
+                        $QueryParameters[$ParamName] = $CurrentValue
+                    }
+                }
+
+                '{0}({1})' -f $(if ($DbReaderInfoInstance.Negate) { 'NOT ' }), ($Values -join " $($DbReaderInfoInstance.ConditionalOperator) ")
+            }
+            '{0}({1})' -f $(if ($ParamNamePrefix -in $NegateCollection) { 'NOT ' }), ($CurrInstanceConditions -join ' OR ')  # OR should be configurable
+        }
+
+        $WhereString = if ($AllWhereConditions) {
+            "WHERE${JoinSpacingString}{0}" -f ($AllWhereConditions -join " AND${JoinSpacingString}")  # NEED TO MAKE AND CONFIGURABLE; $JoinSpacingString is in parent scope, which is BAD. FIX IT!!
+        }
+
+        [PSCustomObject] @{
+            WhereString = $WhereString
+            QueryParameters = $QueryParameters
+        }
+    } 
+}
 
 # OrderBy, GroupBy, and Negate all use the same completer. It has logic to change behavior based
 # on what parameter is being used
@@ -569,7 +623,6 @@ Write-Debug 'Checking for fake attributes'
                 'ColumnName'      # The name of the column (used in SELECT block)
                 'ComparisonOperator'
                 'ConditionalOperator'
-                'QuoteString'
                 'TransformArgument'
                 'AllowWildcards'
                 'PropertyName'
@@ -632,16 +685,9 @@ else {
                         $DbPropertyInfo['ComparisonOperator'] = 'LIKE'
                     }
                 }
-                if (-not $DbPropertyInfo.Contains('QuoteString')) {
-                    $DbPropertyInfo['QuoteString'] = "'"
-                }
             }
 
             if ($Parameter.Value.ScalarType -eq [datetime]) {
-                if (-not $DbPropertyInfo.Contains('QuoteString')) {
-                    $DbPropertyInfo['QuoteString'] = "'"
-                }
-
                 $DateParametersThatNeedCompleter.Add($Parameter.Key)
             }
 
@@ -731,6 +777,8 @@ function InvokeReaderCommand {
         [System.Data.Common.DbConnection] $Connection,
         [Parameter(Mandatory, Position=1)]
         [string] $Query,
+        # Optional parameters for a parameterized query
+        [System.Collections.IDictionary] $QueryParameters,
         # Optional PSTypeNames to add to the objects that are output
         [string[]] $PSTypeName
     )
@@ -761,6 +809,17 @@ function InvokeReaderCommand {
         $Command = $Connection.CreateCommand()
         $Command.Connection = $Connection
         $Command.CommandText = $Query
+
+        if ($PSBoundParameters.ContainsKey('QueryParameters')) {
+            foreach ($QueryParamEntry in $QueryParameters.GetEnumerator()) {
+                $Param = New-Object System.Data.SqlClient.SqlParameter (
+                    $QueryParamEntry.Name,
+                    $QueryParamEntry.Value
+                )
+
+                $Command.Parameters.Add($Param) | Out-Null
+            }
+        }
 
         try {
             $Reader = $Command.ExecuteReader()
@@ -1218,43 +1277,6 @@ function DemoAddDbReaderInfo {
     }
 
     end {
-        # Attach helper function that converts all of the info contained in the DBReaderInfo object(s) to a string:
-        $DbReaderInfoToString = {
-
-            $AllConditions = foreach ($DbReaderInfo in $this.GetEnumerator()) {
-                $Values = if ($DbReaderInfo.IsNull) {
-                    'NULL'
-                }
-                else {
-                    $DbReaderInfo.Value
-                }
-
-
-                $Values = foreach ($CurrentValue in $Values) {
-                    if ($DbReaderInfo.AllowWildcards) {
-                        # Translate wildcards to valid SQL (this currently assumes WildcardPattern
-                        # can handle this w/o problem
-                        $CurrentValue = (New-Object System.Management.Automation.WildcardPattern $CurrentValue).ToWql()
-                    }
-
-                    if ($DbReaderInfo.TransformArgument -is [scriptblock]) {
-                        $CurrentValue = $CurrentValue | ForEach-Object $DbReaderInfo.TransformArgument
-                    }
-
-                    '{1}{0}{1}' -f $CurrentValue, $DbReaderInfo.QuoteString
-                }
-
-                $Conditions = foreach ($CurrentValue in $Values) {
-                    '{0} {1} {2}' -f $DbReaderInfo.ColumnName, $DbReaderInfo.ComparisonOperator, $CurrentValue
-                }
-
-                '{0}({1})' -f $(if ($DbReaderInfo.Negate) { 'NOT ' }), ($Conditions -join " $($DbReaderInfo.ConditionalOperator) ")
-            }
-
-            $AllConditions -join ' OR ' # NEED TO MAKE OR CONFIGURABLE
-        }
-        Add-Member -InputObject $CollectedReaderInfos -MemberType ScriptMethod -Name ToWhereString -Value $DbReaderInfoToString
-
         # Populate the $PSBoundDbReaderInfos table in the function's scope.
         # NOTE: Hardcoding the scope isn't a good idea. We can make logic to walk the scope chain and figure out when
         #       it's found the right scope
@@ -1262,7 +1284,7 @@ function DemoAddDbReaderInfo {
             Get-Variable -Scope 2 -Name $__DbReaderInfoTableName -ValueOnly -ErrorAction Stop
         }
         catch {
-            @{}
+            [ordered] @{}
         }
 
         $PsBoundDbReaderInfos[$ParameterName] = $CollectedReaderInfos
@@ -1305,8 +1327,6 @@ $Params = @{V='Value'; N=$true}  # Value would be 'Value', and Negate would be $
         [System.Collections.IDictionary] $ParameterInformation,
         [string] $ColumnName,
 #      [string] $PropertyName,
-        # If OutputValueType is a string, this defaults to '
-        [string] $QuoteString,
         [scriptblock] $TransformArgument,
         # If OutputValueType is a string, this defaults to true, otherwise false
         [switch] $AllowWildcards
@@ -1390,7 +1410,6 @@ Write-Debug "  ..found default"
         IsNull = $false
         ColumnName = $ColumnName
         AllowWildcards = $AllowWildcards -as [bool]
-        QuoteString = $QuoteString
         TransformArgument = $TransformArgument
     }
 
@@ -1410,9 +1429,6 @@ Write-Debug "  ..found default"
         if (-not $PSBoundParameters.ContainsKey('ComparisonOperator')) {
             # In the unlikely event that 'IS' is the wrong operator, the user can actually override it
             $DbReaderProps.ComparisonOperator = 'IS'
-        }
-        if (-not $PSBoundParameters.ContainsKey('QuoteString')) {
-            $DbReaderProps.QuoteString = ''
         }
         [PSCustomObject] $DbReaderProps
     }

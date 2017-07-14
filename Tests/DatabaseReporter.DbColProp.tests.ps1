@@ -4,203 +4,344 @@
 
 Describe '[MagicDbProp()]' {
 
-    $TestMod = New-Module -Name DBTest -ScriptBlock {
-        $DebugMode = $true
+    It '<testname>' -test {
+        param(
+            [scriptblock] $Module,
+            [scriptblock] $Commands,
+            # Results should have ExpectedQuery and ExpectedParams keys, which
+            # are used in the -ParameterFilter for the Assert-MockCalled command.
+            [System.Collections.IDictionary[]] $ExpectedResults
+        )
 
-        . "$PSScriptRoot\..\DatabaseReporter.ps1"
+        <#
+        I'm not happy with how this is working right now. Originally, I was going to use
+        InModuleScope to execute the code and Mock InvokeReaderCommand. I wanted to simply
+        use the PSModuleInfo for the dynamic modules instead of formally importing the
+        modules, but it turns out Pester doesn't seem to support that. I peeked at the code
+        that handles it, and it looks like it might be possible to make that work (I'd like
+        to see InModuleScope, Mock, and Assert-MockCalled take PSModuleInfo's as an alternative
+        to a module name).
 
-        DbReaderCommand Get-Customer {
-            [MagicDbInfo(
-                FromClause = 'FROM Customers',
-                DbConnectionString = 'FakeConnectionString',
-                DbConnectionType = 'System.Data.SqlClient.SqlConnection'
-            )]
-            param(
-                [MagicDbProp(ColumnName='Customers.CustomerId')]
-                [int] $CustomerId,
-                [MagicDbProp(ColumnName='Customers.FirstName')]
-                [string] $FirstName,
-                [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
-                [string] $LastName,
-                [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
-                [string] $Title
-            )
+        In theory, InModuleScope should still work with these in memory modules if they're
+        imported w/ Import-Module, but I still had trouble. Using the -ModuleName on Mock and
+        Assert-MockCalled, but that doesn't seem to like re-using the same module name (even
+        if the old module is removed first).
+
+        So, GUIDs are used to randomize the module names until a better solution is found.
+        #>
+        $TempModuleName = '__TempModule__{0}' -f [guid]::NewGuid().ToString('N')
+        $TempModule = New-Module -Name $TempModuleName -ScriptBlock $Module
+        $TempModule | Import-Module -Force
+
+        Mock InvokeReaderCommand {
+            # This helps with building the tests. If the module code had this
+            # variable set to true, then dump the params passed to InvokeReaderCommand:
+            if ($__ShowIrcParams) {
+                Write-Host "InvokeReaderCommand called with:"  -ForegroundColor DarkYellow
+                Write-Host "  Query: ${Query}"
+                Write-Host "  QueryParameters:"
+                foreach ($QueryParamEntry in $QueryParameters.GetEnumerator()) {
+                        Write-Host ('    {0}: {1}' -f $QueryParamEntry.Name, $QueryParamEntry.Value)
+                }
+            }
+        } -ModuleName $TempModule.Name
+
+        & $Commands
+
+        foreach ($CurrResult in $ExpectedResults) {
+            Assert-MockCalled InvokeReaderCommand -ModuleName $TempModule.Name -ParameterFilter {
+                ($Query | Test-QueryMatch $CurrResult.ExpectedQuery) -and
+                ($QueryParameters | Test-DictionaryMatch $CurrResult.ExpectedParams)
+            }
         }
 
-        DbReaderCommand Get-CustomerNoFrom {
-            [MagicDbInfo(
-                FromClause = 'Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId',
-                DbConnectionString = 'FakeConnectionString',
-                DbConnectionType = 'System.Data.SqlClient.SqlConnection'
-            )]
-            param(
-                [MagicDbProp(ColumnName='Customers.CustomerId')]
-                [int] $CustomerId,
-                [MagicDbProp(ColumnName='Customers.FirstName')]
-                [string] $FirstName,
-                [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
-                [string] $LastName,
-                [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
-                [string] $Title
-            )
+        $TempModule | Remove-Module
+    } -TestCases @(
+        @{
+            testname = 'PropertyName'
+            Commands = { Get-Customer -FirstName a*, $null, b* -LastName a* } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                SELECT Customers.CustomerId AS CustomerId, Customers.FirstName AS RenamedFirstName, Customers.LastName AS LastName 
+                FROM Customers
+                WHERE 
+                ((Customers.FirstName LIKE @FirstName0 OR Customers.FirstName LIKE @FirstName1) OR (Customers.FirstName IS NULL)) AND
+                ((Customers.LastName LIKE @LastName0))
+                '
+                ExpectedParams = @{
+                    '@FirstName0' = 'a%'
+                    '@FirstName1' = 'b%'
+                    '@LastName0' = 'a%'
+                }
+            }
+            Module = {
+
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+                DbReaderCommand Get-Customer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp(ColumnName='Customers.CustomerId')]
+                        [int] $CustomerId,
+                        [MagicDbProp(ColumnName='Customers.FirstName', PropertyName='RenamedFirstName')]
+                        [string] $FirstName,
+                        [MagicDbProp(ColumnName='Customers.LastName')]
+                        [string] $LastName
+                    )
+                }
+            }
+        },
+        @{
+            testname = 'ConditionalOperator'
+            Commands = { Get-Customer -FirstName a*, e* -LastName a*, e* } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                    SELECT
+                        Customers.FirstName AS FirstName,
+                        Customers.LastName AS LastName
+                    FROM
+                        Customers
+                    WHERE
+                        ((Customers.FirstName LIKE @FirstName0 AND Customers.FirstName LIKE @FirstName1)) AND
+                        ((Customers.LastName LIKE @LastName0 OR Customers.LastName LIKE @LastName1))
+                '
+                ExpectedParams = @{
+                    '@FirstName0' = 'a%'
+                    '@FirstName1' = 'e%'
+                    '@LastName0' = 'a%'
+                    '@LastName1' = 'e%'
+                 }
+            }
+            Module = {
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+                DbReaderCommand Get-Customer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp(ColumnName='Customers.FirstName', ConditionalOperator='AND')]
+                        [string] $FirstName,
+                        [MagicDbProp(ColumnName='Customers.LastName')]
+                        [string] $LastName
+                    )
+                }
+            }
+        },
+        @{
+            testname = 'AllowWildcards'
+            Commands = { Get-Customer -FirstName fre?, g* -LastName fre?, g* } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                    SELECT
+                        Customers.CustomerId AS CustomerId,
+                        Customers.FirstName AS FirstName,
+                        Customers.LastName AS LastName
+                    FROM
+                        Customers
+                    WHERE
+                        ((Customers.FirstName = @FirstName0 OR Customers.FirstName = @FirstName1)) AND
+                        ((Customers.LastName LIKE @LastName0 OR Customers.LastName LIKE @LastName1))
+                '
+                ExpectedParams = @{ 
+                    '@FirstName0' = 'fre?'
+                    '@FirstName1' = 'g*'
+                    '@LastName0' = 'fre_'
+                    '@LastName1' = 'g%'
+                }
+            }
+            Module = {
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+                DbReaderCommand Get-Customer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp(ColumnName='Customers.CustomerId')]
+                        [int] $CustomerId,
+                        [MagicDbProp(ColumnName='Customers.FirstName', AllowWildcards=$false)]
+                        [string] $FirstName,
+                        [MagicDbProp(ColumnName='Customers.LastName')]
+                        [string] $LastName
+                    )
+                }
+            }
+        },
+        @{
+            testname = 'TransformArgument'
+            Commands = {
+                Get-QuoteStringCustomer -FirstName FRED, GEORGE -LastName SMITH 
+            } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                SELECT
+                    Customers.CustomerId AS CustomerId,
+                    Customers.FirstName AS FirstName,
+                    Customers.LastName AS LastName
+                FROM
+                    Customers
+                WHERE
+                    ((Customers.FirstName LIKE @FirstName0 OR Customers.FirstName LIKE @FirstName1)) AND
+                    ((Customers.LastName LIKE @LastName0))
+                '
+                ExpectedParams = @{ 
+                    '@FirstName0' = 'fred'
+                    '@FirstName1' = 'george'
+                    '@LastName0' = 'SMITH'
+                }
+            }
+            Module = {
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+                DbReaderCommand Get-QuoteStringCustomer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp(ColumnName='Customers.CustomerId')]
+                        [int] $CustomerId,
+                        [MagicDbProp(ColumnName='Customers.FirstName', TransformArgument={ "${_}".ToLower() })]
+                        [string] $FirstName,
+                        [MagicDbProp(ColumnName='Customers.LastName')]
+                        [string] $LastName
+                    )
+                }
+            }
+        },
+        @{
+            testname = 'ComparisonOperator'
+            Commands = { Get-Customer -CustomerId 123, 456 -FirstName Fred, George -LastName A* -Title Blah } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                    SELECT
+                        Customers.CustomerId AS CustomerId,
+                        Customers.FirstName AS FirstName,
+                        Customers.LastName AS LastName,
+                        Customers.Title AS Title
+                    FROM
+                        Customers
+                    WHERE
+                        ((Customers.CustomerId = @CustomerId0 OR Customers.CustomerId = @CustomerId1)) AND
+                        ((Customers.FirstName LIKE @FirstName0 OR Customers.FirstName LIKE @FirstName1)) AND
+                        ((Customers.LastName ILIKE @LastName0)) AND
+                        ((Customers.Title FAKEOP @Title0))
+                '
+                ExpectedParams = @{
+                    '@CustomerId0' = 123
+                    '@CustomerId1' = 456
+                    '@FirstName0' = 'Fred'
+                    '@FirstName1' = 'George'
+                    '@LastName0' = 'A%'
+                    '@Title0' = 'Blah'
+                }
+            }
+            Module = {
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+                DbReaderCommand Get-Customer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp(ColumnName='Customers.CustomerId')]
+                        [int] $CustomerId,
+                        [MagicDbProp(ColumnName='Customers.FirstName')]
+                        [string] $FirstName,
+                        [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
+                        [string] $LastName,
+                        [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
+                        [string] $Title
+                    )
+                }
+            }
+        },
+        @{
+            testname = 'Entire attribute name can be changed'
+            Commands = { Get-Customer -CustomerId 123, 456 -FirstName Fred, George -LastName A* -Title Blah } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                    SELECT
+                        Customers.CustomerId AS CustomerId,
+                        Customers.FirstName AS FirstName,
+                        Customers.LastName AS LastName,
+                        Customers.Title AS Title
+                    FROM
+                        Customers
+                    WHERE
+                        ((Customers.CustomerId = @CustomerId0 OR Customers.CustomerId = @CustomerId1)) AND
+                        ((Customers.FirstName LIKE @FirstName0 OR Customers.FirstName LIKE @FirstName1)) AND
+                        ((Customers.LastName ILIKE @LastName0)) AND
+                        ((Customers.Title FAKEOP @Title0))
+                '
+                ExpectedParams = @{
+                    '@CustomerId0' = 123
+                    '@CustomerId1' = 456
+                    '@FirstName0' = 'Fred'
+                    '@FirstName1' = 'George'
+                    '@LastName0' = 'A%'
+                    '@Title0' = 'Blah'
+                }
+            }
+            Module = {
+
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+                $__FakeAttributes.DbColumnProperty = 'RenamedProp'
+                DbReaderCommand Get-Customer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [RenamedProp(ColumnName='Customers.CustomerId')]
+                        [int] $CustomerId,
+                        [RenamedProp(ColumnName='Customers.FirstName')]
+                        [string] $FirstName,
+                        [RenamedProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
+                        [string] $LastName,
+                        [RenamedProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
+                        [string] $Title
+                    )
+                }
+            }
         }
-    } 
-
-    $TestModRenamed = New-Module -Name DBTest2 -ScriptBlock {
-        $DebugMode = $true
-
-        . "$PSScriptRoot\..\DatabaseReporter.ps1"
-
-        $__FakeAttributes.DbColumnProperty = 'RenamedProp'
-        DbReaderCommand Get-Customer2 {
-            [MagicDbInfo(
-                FromClause = 'FROM Customers',
-                DbConnectionString = 'FakeConnectionString',
-                DbConnectionType = 'System.Data.SqlClient.SqlConnection'
-            )]
-            param(
-                [RenamedProp(ColumnName='Customers.CustomerId')]
-                [int] $CustomerId,
-                [RenamedProp(ColumnName='Customers.FirstName')]
-                [string] $FirstName,
-                [RenamedProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
-                [string] $LastName,
-                [RenamedProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
-                [string] $Title
-            )
+<#
         }
-    } 
+        @{
+            testname = 'dummy'
+            Commands = {} 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                '
+                ExpectedParams = @{ }
+            }
+            Module = {
+                $__ShowIrcParams = $true
+            }
+        }
+#>
+    )
+<#
 
-    It 'FromClause works without ''FROM'' keyword' {
-        $Expected = "SELECT Customers.CustomerID as CustomerID* FROM Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId WHERE (Customers.CustomerId = 123 OR Customers.CustomerId = 456)" | NormalizeQuery
-        Get-CustomerNoFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
-    }
-    It 'Attribute Can Be Renamed' {
-        Get-Customer -CustomerId 123, 456 -ReturnSqlQuery | Should Be (Get-Customer2 -CustomerId 123, 456 -ReturnSqlQuery)
-    }
-    It 'ColumnName Property Works as Expected' {
-        $Expected = "SELECT Customers.CustomerID as CustomerID* FROM Customers WHERE (Customers.CustomerId = 123 OR Customers.CustomerId = 456)" | NormalizeQuery
-        Get-Customer -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery |  Should BeLike $Expected
-    }
     It 'ComparisonOperator Property Works as Expected' {
         $Expected = "SELECT Customers.CustomerId as CustomerId, Customers.FirstName AS FirstName, Customers.LastName AS LastName, Customers.Title AS Title FROM Customers WHERE (Customers.CustomerId = 123 OR Customers.CustomerId = 456) AND (Customers.FirstName LIKE 'Fred' OR Customers.FirstName LIKE 'George') AND (Customers.LastName ILIKE 'A%') AND (Customers.Title FAKEOP 'Blah')" | NormalizeQuery
-        Get-Customer -CustomerId 123, 456 -FirstName Fred, George -LastName A* -Title Blah -ReturnSqlQuery | NormalizeQuery |  Should Be $Expected
+        | NormalizeQuery |  Should Be $Expected
     }
 
-    It 'ConditionalOperator attribute works as expected' {
-        $Expected = "
-            SELECT
-                Customers.FirstName AS FirstName,
-                Customers.LastName AS LastName
-            FROM
-                Customers
-            WHERE
-                (Customers.FirstName LIKE 'a%' AND Customers.FirstName LIKE 'e%') AND
-                (Customers.LastName LIKE 'a%' OR Customers.LastName LIKE 'e%')" | NormalizeQuery
-        
-        $CurrMod = New-Module -Name CondOpTest -ScriptBlock {
-
-            $DebugMode = $true
-
-            . "$PSScriptRoot\..\DatabaseReporter.ps1"
-            DbReaderCommand Get-CondOpCustomer {
-                [MagicDbInfo(
-                    FromClause = 'FROM Customers',
-                    DbConnectionString = 'FakeConnectionString',
-                    DbConnectionType = 'System.Data.SqlClient.SqlConnection'
-                )]
-                param(
-                    [MagicDbProp(ColumnName='Customers.FirstName', ConditionalOperator='AND')]
-                    [string] $FirstName,
-                    [MagicDbProp(ColumnName='Customers.LastName')]
-                    [string] $LastName
-                )
-            }
-        }
-
-        Get-CondOpCustomer -FirstName a*, e* -LastName a*, e* -ReturnSqlQuery | NormalizeQuery |  Should Be $Expected
-        $CurrMod | Remove-Module
-    }
-
-    It 'QuoteString attribute works as expected' {
-        $Expected = "
-            SELECT
-                Customers.CustomerId AS CustomerId,
-                Customers.FirstName AS FirstName,
-                Customers.LastName AS LastName
-            FROM
-                Customers
-            WHERE
-                (Customers.CustomerId = ""123"" OR Customers.CustomerId = ""345"") AND
-                (Customers.FirstName LIKE |Name|)" | NormalizeQuery
-        
-        $CurrMod = New-Module -Name CondOpTest -ScriptBlock {
-
-            $DebugMode = $true
-
-            . "$PSScriptRoot\..\DatabaseReporter.ps1"
-            DbReaderCommand Get-QuoteStringCustomer {
-                [MagicDbInfo(
-                    FromClause = 'FROM Customers',
-                    DbConnectionString = 'FakeConnectionString',
-                    DbConnectionType = 'System.Data.SqlClient.SqlConnection'
-                )]
-                param(
-                    [MagicDbProp(ColumnName='Customers.CustomerId', QuoteString='"')]
-                    [int] $CustomerId,
-                    [MagicDbProp(ColumnName='Customers.FirstName', QuoteString='|')]
-                    [string] $FirstName,
-                    [MagicDbProp(ColumnName='Customers.LastName')]
-                    [string] $LastName
-                )
-            }
-        }
-
-        Get-QuoteStringCustomer -CustomerId 123, 345 -FirstName Name -ReturnSqlQuery | NormalizeQuery |  Should Be $Expected
-        $CurrMod | Remove-Module
-    }
-    It 'TransformArgument attribute works as expected' {
-        $Expected = "
-            SELECT
-                Customers.CustomerId AS CustomerId,
-                Customers.FirstName AS FirstName,
-                Customers.LastName AS LastName
-            FROM
-                Customers
-            WHERE
-                (Customers.FirstName LIKE 'fred' OR Customers.FirstName LIKE 'george') AND
-                (Customers.LastName LIKE 'SMITH')" | NormalizeQuery
-        
-        $CurrMod = New-Module -Name CondOpTest -ScriptBlock {
-
-            $DebugMode = $true
-
-            . "$PSScriptRoot\..\DatabaseReporter.ps1"
-            DbReaderCommand Get-QuoteStringCustomer {
-                [MagicDbInfo(
-                    FromClause = 'FROM Customers',
-                    DbConnectionString = 'FakeConnectionString',
-                    DbConnectionType = 'System.Data.SqlClient.SqlConnection'
-                )]
-                param(
-                    [MagicDbProp(ColumnName='Customers.CustomerId')]
-                    [int] $CustomerId,
-                    [MagicDbProp(ColumnName='Customers.FirstName', TransformArgument={ "${_}".ToLower() })]
-                    [string] $FirstName,
-                    [MagicDbProp(ColumnName='Customers.LastName')]
-                    [string] $LastName
-                )
-            }
-        }
-
-        Get-QuoteStringCustomer -FirstName FRED, GEORGE -LastName SMITH -ReturnSqlQuery | NormalizeQuery |  Should BeExactly $Expected
-        $CurrMod | Remove-Module
-    }
+#>
     It 'TransformArgument attribute throws an error for non-scriptblock value' {
         {
             $CurrMod = New-Module -Name CondOpTest -ScriptBlock {
-
-                $DebugMode = $true
 
                 . "$PSScriptRoot\..\DatabaseReporter.ps1"
                 DbReaderCommand Get-QuoteStringCustomer {
@@ -225,87 +366,5 @@ Describe '[MagicDbProp()]' {
             $CurrMod | Remove-Module
         }
     }
-
-    It 'AllowWildcards attribute works as expected' {
-
-        $Expected = "
-            SELECT
-                Customers.CustomerId AS CustomerId,
-                Customers.FirstName AS FirstName,
-                Customers.LastName AS LastName
-            FROM
-                Customers
-            WHERE
-                (Customers.FirstName = 'fred?' OR Customers.FirstName = 'george*') AND
-                (Customers.LastName LIKE 'fred_' OR Customers.LastName LIKE 'george%')" | NormalizeQuery
-
-        $CurrMod = New-Module -Name AllowWildcardTest -ScriptBlock {
-
-            $DebugMode = $true
-
-            . "$PSScriptRoot\..\DatabaseReporter.ps1"
-            DbReaderCommand Get-WildCardCustomer {
-                [MagicDbInfo(
-                    FromClause = 'FROM Customers',
-                    DbConnectionString = 'FakeConnectionString',
-                    DbConnectionType = 'System.Data.SqlClient.SqlConnection'
-                )]
-                param(
-                    [MagicDbProp(ColumnName='Customers.CustomerId')]
-                    [int] $CustomerId,
-                    [MagicDbProp(ColumnName='Customers.FirstName', AllowWildcards=$false)]
-                    [string] $FirstName,
-                    [MagicDbProp(ColumnName='Customers.LastName')]
-                    [string] $LastName
-                )
-            }
-        }
-
-        Get-WildCardCustomer -FirstName fred?, george* -LastName fred?, george* -ReturnSqlQuery | NormalizeQuery |  Should BeExactly $Expected
-        $CurrMod | Remove-Module
-    }
-
-    It 'AllowWildcards attribute works as expected' {
-
-        $Expected = "
-            SELECT
-                Customers.CustomerId AS CustomerId,
-                Customers.FirstName AS RenamedFirstName,
-                Customers.LastName AS LastName
-            FROM
-                Customers
-            WHERE
-                (Customers.FirstName LIKE 'First') AND
-                (Customers.LastName LIKE 'Name')" | NormalizeQuery
-
-        $CurrMod = New-Module -Name PropertyNameTest -ScriptBlock {
-
-            $DebugMode = $true
-
-            . "$PSScriptRoot\..\DatabaseReporter.ps1"
-            DbReaderCommand Get-PropNameCustomer {
-                [MagicDbInfo(
-                    FromClause = 'FROM Customers',
-                    DbConnectionString = 'FakeConnectionString',
-                    DbConnectionType = 'System.Data.SqlClient.SqlConnection'
-                )]
-                param(
-                    [MagicDbProp(ColumnName='Customers.CustomerId')]
-                    [int] $CustomerId,
-                    [MagicDbProp(ColumnName='Customers.FirstName', PropertyName='RenamedFirstName')]
-                    [string] $FirstName,
-                    [MagicDbProp(ColumnName='Customers.LastName')]
-                    [string] $LastName
-                )
-            }
-        }
-
-        Get-PropNameCustomer -FirstName First -LastName Name -ReturnSqlQuery | NormalizeQuery |  Should BeExactly $Expected
-        $CurrMod | Remove-Module
-    }
-
     It 'Formatting info changes properly when ProperyName attribute is used' {}
-
-    $TestMod | Remove-Module
-    $TestModRenamed | Remove-Module
 }
