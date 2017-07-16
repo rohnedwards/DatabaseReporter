@@ -37,6 +37,65 @@ valid properties:
             (Customers.CustomerId LIKE '123')
 
 
+  * NoParameter
+
+    Normally, any parameters defined in the param() block are valid parameters
+    for the PowerShell command that is generated from the DbReaderCommand
+    definition, and parameters with the [MagicDBProp()] attribute get added to
+    the list of columns to return in the SQL results. Parameters that have an
+    associated column in the SQL results act as filters.
+
+    Sometimes it may be desirable to include a column in the SQL results, but 
+    not have a filtering parameter.
+
+    For example, imagine wanting to return a CustomerId, for any returned
+    customer objects, but not wanting the querying command to have a -CustomerId
+    parameter. To do that, you could define a DbReaderCommand like this:
+    
+      DbReaderCommand Get-Customer {
+          [MagicDbInfo(
+              FromClause = 'FROM Customers',
+              DbConnectionString = 'FakeConnectionString',
+              DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+          )]
+          param(
+              [MagicDbProp(ColumnName='Customers.CustomerId', NoParameter)]
+              [int] $CustomerId,
+              [MagicDbProp(ColumnName='Customers.FirstName', NoParameter=$false)]
+              [string] $FirstName,
+              [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
+              [string] $LastName,
+              [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
+              [string] $Title
+          )
+      }
+
+    Note that $CustomerId has the 'NoParameter' property specified (if a value
+    isn't assigned, e.g., $true or $false, then $true is assumed). The $FirstName
+    parameter also has the property, but it is set to $false, which causes the
+    same behavior as if 'NoParameter' wasn't specified at all.
+
+    This means that the 'Get-Customer' command doesn't have a -CustomerId parameter:
+
+      PS> Get-Command Get-Customer -Syntax
+
+      Get-Customer [[-FirstName] <string[]>] [[-LastName] <string[]>] [[-Title] <string[]>]
+      [[-Negate] <string[]>] [[-GroupBy] <string[]>] [[-OrderBy] <string[]>] [-ReturnSqlQuery] 
+      [<CommonParameters>]
+
+    But the underlying SQL queries will have CustomerId as a column:
+
+      PS> Get-Customer -ReturnSqlQuery
+
+      SELECT
+        Customers.CustomerId AS CustomerId,
+        Customers.FirstName AS FirstName,
+        Customers.LastName AS LastName,
+        Customers.Title AS Title
+      FROM
+        Customers
+
+
   * ComparisonOperator
 
     The default comparison operator depends on the type of the property/parameter:

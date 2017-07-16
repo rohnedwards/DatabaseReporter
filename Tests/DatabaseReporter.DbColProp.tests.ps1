@@ -314,6 +314,74 @@ Describe '[MagicDbProp()]' {
                     )
                 }
             }
+        },
+        @{
+            testname = 'NoParameter'
+            Commands = {
+                Get-Customer -FirstName a*                
+
+                $Command1 = Get-Command Get-Customer
+                $Command2 = Get-Command Get-CustomerAlt
+
+                $Command1, $Command2 | ForEach-Object {
+                    $_.Parameters.ContainsKey('CustomerId') | Should Be $false
+                }
+            } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                    SELECT
+                        Customers.CustomerId AS CustomerId,
+                        Customers.FirstName AS FirstName,
+                        Customers.LastName AS LastName,
+                        Customers.Title AS Title
+                    FROM
+                        Customers
+                    WHERE
+                        ((Customers.FirstName LIKE @FirstName0))
+                '
+                ExpectedParams = @{
+                    '@FirstName0' = 'a%'
+                }
+            }
+            Module = {
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+                DbReaderCommand Get-Customer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp(ColumnName='Customers.CustomerId', NoParameter)]
+                        [int] $CustomerId,
+                        [MagicDbProp(ColumnName='Customers.FirstName', NoParameter=$false)]
+                        [string] $FirstName,
+                        [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
+                        [string] $LastName,
+                        [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
+                        [string] $Title
+                    )
+                }
+
+                DbReaderCommand Get-CustomerAlt {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp(ColumnName='Customers.CustomerId', NoParameter=$true)]
+                        [int] $CustomerId,
+                        [MagicDbProp(ColumnName='Customers.FirstName')]
+                        [string] $FirstName,
+                        [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
+                        [string] $LastName,
+                        [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
+                        [string] $Title
+                    )
+                }
+            }
         }
 <#
         }
