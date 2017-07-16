@@ -1,3 +1,4 @@
+. "$PSScriptRoot\Helpers.ps1"
 
 Describe 'Basic Functionality' {
     It 'Writes an error when no command information is provided' {
