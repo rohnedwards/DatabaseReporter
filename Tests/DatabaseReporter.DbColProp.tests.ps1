@@ -382,7 +382,49 @@ Describe '[MagicDbProp()]' {
                     )
                 }
             }
+        },
+        @{
+            testname = 'DbColProp works with no properties'
+            Commands = { Get-Customer -FirstName a* } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                    SELECT
+                        CustomerId AS CustomerId,
+                        FirstName AS FirstName,
+                        LastName AS LastName,
+                        Title AS Title
+                    FROM
+                        Customers
+                    WHERE
+                        ((FirstName LIKE @FirstName0))
+                '
+                ExpectedParams = @{
+                    '@FirstName0' = 'a%'
+                }
+            }
+            Module = {
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+                DbReaderCommand Get-Customer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp()]
+                        [int] $CustomerId,
+                        [MagicDbProp()]
+                        [string] $FirstName,
+                        [MagicDbProp()]
+                        [string] $LastName,
+                        [MagicDbProp()]
+                        [string] $Title
+                    )
+                }
+            }
         }
+
 <#
         }
         @{

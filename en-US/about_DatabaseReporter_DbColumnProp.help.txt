@@ -3,8 +3,11 @@ corresponds to a column in the SELECT statement. The attribute has several
 valid properties:
 
   * ColumnName
-    This is the only mandatory property. This is what the PowerShell parameter
-    is named in the SELECT query, including the table name or alias.
+    This is what the PowerShell parameter is named in the SELECT query, 
+    including the table name or alias. While this paramter isn't required for
+    very simple queries where there are no ambiguous columns, it is highly 
+    recommended that it always be specified. If not specified, the name of the 
+    parameter is used in its place.
 
     Example:
 

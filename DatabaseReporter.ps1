@@ -691,6 +691,13 @@ else {
                 $DateParametersThatNeedCompleter.Add($Parameter.Key)
             }
 
+            if (-not $DbPropertyInfo.Contains('ColumnName')) {
+                # User didn't specify a ColumnName? Not ideal, but for very simple queries where the parameter
+                # matches the desired column, that shouldn't be a problem. Go ahead and assume it's the same
+                # as the property name:
+                $DbPropertyInfo['ColumnName'] = $Parameter.Name
+            }
+
             $CommandDbInformation.PropertyParameters[$Parameter.Name] = $DbPropertyInfo
         }
     }
@@ -1323,10 +1330,10 @@ $Params = @{V='Value'; N=$true}  # Value would be 'Value', and Negate would be $
         [string] $ComparisonOperator = '=',
         [type] $OutputValueType = [object[]],
         # Copy of the parameter information for the current parameter (provides default parameter information that
-        # might have been defined in the command definition
+        # might have been defined in the command definition). This shouldn't be allowed at runtime, and it is up
+        # to the caller to ensure a dictionary doesn't contain this before splatting it.
         [System.Collections.IDictionary] $ParameterInformation,
         [string] $ColumnName,
-#      [string] $PropertyName,
         [scriptblock] $TransformArgument,
         # If OutputValueType is a string, this defaults to true, otherwise false
         [switch] $AllowWildcards
@@ -1339,6 +1346,18 @@ $Params = @{V='Value'; N=$true}  # Value would be 'Value', and Negate would be $
         $TypeToCoerce = $OutputValueType.GetElementType()
     }
 
+    <#
+        Most of the parameters for this function can be specified in the [DbColProp()]
+        attribute, and then overriden by the parameters for each call to function.
+
+        Here's where we loop through each valid parameter for this function and check
+        to see if a [DbColProp()] attribute set a default for each parameter, and if so,
+        use that unless this specific call overrides it (in which case the 'ParameterName'
+        would be present in the $PSBoundParameters dictionary).
+
+        Note that there are a few parameters that are ignored since they can't be
+        specified in the [DbColProp()] attribute.
+    #>
     foreach ($ParameterName in $MyInvocation.MyCommand.Parameters.Keys) {
         
         if ($ParameterName -in 'Value', 'ParameterInformation') {
@@ -1347,10 +1366,7 @@ $Params = @{V='Value'; N=$true}  # Value would be 'Value', and Negate would be $
             continue
         }
 
-Write-Debug "Default checker for parameter $ParameterName"
         if (-not $PSBoundParameters.ContainsKey($ParameterName) -and $ParameterInformation.Contains($ParameterName)) {
-Write-Debug "  ..found default"
-#            $PSBoundParameters[$ParameterName] = $ParameterInformation
             Set-Variable -Name $ParameterName -Value $ParameterInformation[$ParameterName] -Scope Local
         }
     }
@@ -1413,11 +1429,6 @@ Write-Debug "  ..found default"
         TransformArgument = $TransformArgument
     }
 
-<#
-    if ($PropertyName) {
-        $DbReaderProps.PropertyName = $PropertyName
-    }
-#>
     if ($NonNullValues -ne $null) {
         $DbReaderProps.Value = $NonNullValues -as $OutputValueType
         [PSCustomObject] $DbReaderProps
