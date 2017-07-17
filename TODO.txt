@@ -13,6 +13,14 @@
   The ones that can't be moved should be documented so that module authors know
   which variables to avoid.
 
+    PROGRESS: GetModuleSettingsDictionary is a helper function that gets (and creates
+              an empty) a dictionary that can be used to hold module specific stuff.
+              The name of the dict has double underscores before and after it (it can
+              be changed in said helper function). This function will obviously pollute
+              the owning module scope, so it will need to be documented. Other variables
+              should be moved into this dictionary over time as unit tests are made for
+              their functionality.
+
   Also, helper functions need to be made much more defensive about how far up
   the scope chain they walk. They should at the least stop looking at the module
   scope and never look into the global scope. One variable that has this problem
@@ -119,6 +127,16 @@
 
     - DebugMode
     - NoParameter
+    - DB Connections
+      If connection object isn't opened, InvokeReaderCommand will attempt to open it and close it back when done.
+      
+      What happens if connection is supposed to stay open for the life of the module but it dies? Do we try to
+      open it again, or require re-importing of module?
+
+      Another thing: connection objects are bound to commands as they're processed, and there's no real mechanism
+      to change them at runtime. Do we wnat that ability? The SqlMetadata example module wants to be able to do
+      this, but that can be fixed by having its helper commands go through the command declaration dictionary and
+      fixing all of the connection objects up.
 
 * Tests!
     - Test that when passing dict to a parameter, that the following happens:

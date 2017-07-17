@@ -456,8 +456,21 @@ function DbReaderCommand {
     # Need DB Info (this doesn't even check reference command...should it?)
     $CommandDbInformation = $DefinitionParsedParamBlock.DbInfo
 
-    # Command MUST have a connection object, either specified by 'DbConnection' ScriptBlock (already opened), or by
-    # DbConnectionString and DbConnectionType strings
+    # Command MUST have a connection object. There are three ways to do this, and
+    # they are searched in this order (first listed take precedence over the methods
+    # listed later):
+    #    1. [MagicDbInfo()]: Define a DbConnection object
+    #       You must pass this in a scriptblock. This is like method #1, except the
+    #       type is instantiated with the connection string
+    #    2. [MagicDbInfo()]: Define a DbConnectionString AND a DBConnectionType
+    #       This will create a connection and tear it down each time a DbReaderCommand
+    #       function is invoked.
+    #    3. Specify a default module DbConnection object by using Set-DbReaderConnection
+    #       This has its own parameters, and can take either a connectionstring/type combo,
+    #       or a full fledged connection object
+    #
+    # Multiple definitions can be used, but the winner will be whichever was listed earliest
+    # above.
     $DbConnectionParams = @{}
     if ($CommandDbInformation.Contains('DbConnection')) {
         $DbConnection = $CommandDbInformation['DbConnection']
@@ -484,39 +497,13 @@ function DbReaderCommand {
     }
     elseif ($CommandDbInformation.Contains('DbConnectionString') -and $CommandDbInformation.Contains('DbConnectionType')) {
         $ConnectionString = $CommandDbInformation['DbConnectionString'] | EvaluateAttributeArgumentValue -OutputAs string -LimitAstToType VariableExpressionAst -LimitNumberOfElements 1
-        $ConnectionType = $CommandDbInformation['DbConnectionType'] | EvaluateAttributeArgumentValue -OutputAs string -LimitAstToType VariableExpressionAst -LimitNumberOfElements 1
+        $ConnectionType = $CommandDbInformation['DbConnectionType'] | EvaluateAttributeArgumentValue -OutputAs string -LimitAstToType VariableExpressionAst -LimitNumberOfElements 1 | AsDbConnectionType
 
         if ($ConnectionString -eq $null) {
             Write-Error "Unable to get a connection string from value: $($CommandDbInformation['DbConnectionString'])"
             return
         }
 
-        $PotentialType = $ConnectionType -as [type]
-        if (-not $PotentialType) {
-            # Maybe shortname was used. Let's try to get valid types:
-            if ($script:__ValidConnectionTypes -eq $null) {
-                $script:__ValidConnectionTypes = New-Object System.Collections.Generic.List[type]
-
-                foreach ($ValidConnectionType in GetInheritedClasses -ParentType System.Data.Common.DbConnection -ExcludeAbstract) {
-                    $script:__ValidConnectionTypes.Add($ValidConnectionType)
-                }
-            }
-
-            $PotentialType = $script:__ValidConnectionTypes | Where-Object Name -eq $ConnectionType
-            if (-not $PotentialType) {
-                Write-Warning "Unable to find $ConnectionType in valid DB Connection types; searching all assemblies..."
-                # Last ditch effort to try expensive call to GetInheritedClasses:
-                $script:__ValidConnectionTypes.Clear()
-                
-                foreach ($ValidConnectionType in GetInheritedClasses -ParentType System.Data.Common.DbConnection -ExcludeAbstract -SearchAllAssemblies) {
-                    $script:__ValidConnectionTypes.Add($ValidConnectionType)
-                }
-                $PotentialType = $script:__ValidConnectionTypes | Where-Object Name -eq $ConnectionType
-            }
-
-        }
-
-        $ConnectionType = $PotentialType -as [type]
 
         if ($ConnectionType -eq $null) {
             Write-Error "Unknown connection type: $($CommandDbInformation['DbConnectionType'])"
@@ -528,6 +515,9 @@ function DbReaderCommand {
 
         $CommandDbInformation.Remove('DbConnectionType')
         $DbConnectionParams.ConnectionType = $ConnectionType
+    }
+    elseif (($ModuleScopedDbConnection = Get-DbReaderConnection)) {
+        $DbConnectionParams.Connection = $ModuleScopedDbConnection
     }
     else {
         Write-Error ("param() block for '$CommandName' is missing a database connection in the {0} attribute. You must either specify a 'DbConnection' scriptblock that returns a [System.Data.Common.DbConnection] object, or valid 'DbConnectionString' and 'DbConnectionType' strings that can be used to create a connection." -f $__FakeAttributes.DbCommandInfoAttributeName)
@@ -1447,6 +1437,126 @@ $Params = @{V='Value'; N=$true}  # Value would be 'Value', and Negate would be $
             $DbReaderProps.ComparisonOperator = 'IS'
         }
         [PSCustomObject] $DbReaderProps
+    }
+}
+function AsDbConnectionType {
+<#
+Tries to convert the input into a valid DB connection type. Easy to do if a full 
+type or typename is always provided, but we want to be able to provide shortnames, 
+too. If that happens, this function will look through all assemblies for DB 
+connection types that have the shortname.
+#>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object] $ConnectionType 
+    )
+    
+    process {
+        $PotentialType = $ConnectionType -as [type]
+        if (-not $PotentialType) {
+            # Maybe shortname was used. Let's try to get valid types:
+            if ($script:__ValidConnectionTypes -eq $null) {
+                $script:__ValidConnectionTypes = New-Object System.Collections.Generic.List[type]
+
+                foreach ($ValidConnectionType in GetInheritedClasses -ParentType System.Data.Common.DbConnection -ExcludeAbstract) {
+                    $script:__ValidConnectionTypes.Add($ValidConnectionType)
+                }
+            }
+
+            $PotentialType = $script:__ValidConnectionTypes | Where-Object Name -eq $ConnectionType
+            if (-not $PotentialType) {
+                Write-Warning "Unable to find $ConnectionType in valid DB Connection types; searching all assemblies..."
+                # Last ditch effort to try expensive call to GetInheritedClasses:
+                $script:__ValidConnectionTypes.Clear()
+                
+                foreach ($ValidConnectionType in GetInheritedClasses -ParentType System.Data.Common.DbConnection -ExcludeAbstract -SearchAllAssemblies) {
+                    $script:__ValidConnectionTypes.Add($ValidConnectionType)
+                }
+                $PotentialType = $script:__ValidConnectionTypes | Where-Object Name -eq $ConnectionType
+            }
+
+        }
+
+        $PotentialType -as [type]
+    }
+}
+
+function Get-DbReaderConnection {
+    <#
+        Used to get the module scoped default DB connection. If the location of
+        that object changes, Set-DbReaderConnection MUST be changed at the same
+        time
+    #>
+
+    end {
+        $ModuleDefaults = GetModuleSettingsDictionary
+        if ($ModuleDefaults -is [System.Collections.IDictionary]) {
+            $ModuleDefaults['DbConnection']
+        }
+    }
+}
+
+function GetModuleSettingsDictionary {
+    end {
+        $DictionaryVariableName = '__DatabaseReaderModuleSettings__' 
+
+        $SettingsDictionary = Get-Variable -Name $DictionaryVariableName -Scope script -ErrorAction SilentlyContinue -ValueOnly
+        if ($null -eq $SettingsDictionary) {
+            # Must not exist, so create it!
+            Write-Verbose "Creating '${DictionaryVariableName}' settings dictionary..."
+            $SettingsDictionary = @{}
+            Set-Variable -Name $DictionaryVariableName -Value $SettingsDictionary -Scope script
+        }
+
+        Write-Output $SettingsDictionary
+    }
+}
+
+function Set-DbReaderConnection {
+    <#
+        Used to set the module scoped default DB connection. If the location of
+        that object changes, Get-DbReaderConnection MUST be changed at the same
+        time
+    #>
+    [CmdletBinding(DefaultParameterSetName='ByConnectionObject')]
+    param(
+        [Parameter(Mandatory, ParameterSetName='ByConnectionString')]
+        [string] $ConnectionString,
+        [Parameter(Mandatory, ParameterSetName='ByConnectionString')]
+        [ROE.TransformParameter({$_ | AsDbConnectionType})]
+        [type] $ConnectionType,
+        [Parameter(Mandatory, ParameterSetName='ByConnectionObject', Position=0)]
+        [System.Data.Common.DbConnection] $ConnectionObject
+    )
+
+    end {
+        try {
+            $ReturnObject = switch ($PSCmdlet.ParameterSetName) {
+                ByConnectionString {
+                    New-Object $ConnectionType ($ConnectionString) 
+                }
+
+                ByConnectionObject {
+                    $ConnectionObject
+                }
+
+                default {
+                    throw "Command called with unknown ParameterSet '${_}'"
+                }
+            }
+
+            if ($null -eq $ReturnObject) {
+                throw "The parameters provided did not result in a valid DbConnection object"
+            }
+        }
+        catch {
+            Write-Error "Unable to assign DatabaseReader connection: ${_}"
+            return
+        }
+
+        $ModuleDefaults = GetModuleSettingsDictionary
+        $ModuleDefaults['DbConnection'] = $ReturnObject
     }
 }
 

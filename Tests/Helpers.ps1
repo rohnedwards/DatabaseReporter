@@ -1,3 +1,5 @@
+$DatabaseReporterLocation = "$PSScriptRoot\..\DatabaseReporter.ps1"
+
 function NormalizeQuery {
     [CmdletBinding()]
     param(
