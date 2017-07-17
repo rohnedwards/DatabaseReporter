@@ -1,0 +1,171 @@
+* Clean up variable and command footprint
+
+  If you create an empty module that has dot-sourced the PS1 file, you'll notice
+  lots of variables and functions in scope. This is bad, since ideally module
+  authors that take a dependency on this should be able to write their modules
+  without worrying about overwriting critical DBReporter members.
+
+  Short to medium term, a lot of the top level variables can be moved into a 
+  dictionary, and we can have helper functions that allow interacting with it. 
+  The variables that deal with the names of attributes and properties definitely
+  belong in this dictionary. 
+  
+  The ones that can't be moved should be documented so that module authors know
+  which variables to avoid.
+
+  Also, helper functions need to be made much more defensive about how far up
+  the scope chain they walk. They should at the least stop looking at the module
+  scope and never look into the global scope. One variable that has this problem
+  is $DbConnection. Right now, assigning that in the module scope, and then setting
+  the 'DbConnection' property in [MagicDbInfo()] to '{ $DbConnection }' doesn't
+  work because of variable scoping and overwriting issues (going off memory right
+  here)
+  
+  Ideally, this whole thing would just be a sub-module that a module could import
+  so that this isn't a problem at all, but I believe the DbReaderCommand function
+  has to live in the scope of the main module, or else Export-ModuleMember won't
+  export it to the global scope. The function could be modified to write the
+  commands to the global function table instead of relying on Export-ModuleMember,
+  but sometimes someone may want to import one of these modules as a submodule
+  without exposing the commands. Example of what I think the problem is (but 
+  haven't looked at in over a year, so I may be wrong):
+
+        TestModule {
+            # This would be awesome to encapuslate all of the DBReporter trash
+            # inside its own module:
+            Import-Module DatabaseReporter
+
+            DbReaderCommand Get-Something {
+
+            }
+        }
+
+        In that example, TestModule should export 'Get-Something'. I think, though,
+        that Get-Something would only be visible inside the DbReaderCommand module
+        scope, inside the TestModule scope.
+
+* PSTypeName default
+
+  A PSTypeName can be added to a DBReader command, which is great for the (currently
+  primitive) formatting system.
+
+  What about if formatting is configured, but no PSTypeName is configured? Need to
+  do one of the following in that instance:
+    - Write a warning letting user know that formatting was specified, but no PSTypeName
+      was specified, and how to fix issue. Also, ignore the formatting information.
+    - Dynamically create a PSTypeName. We could use the module and command name together
+      to uniquely identify it (maybe even see if we could get at the fully qualified
+      name)
+
+* Add a common parameter to allow advanced query options
+
+  Maybe something like -QueryOption. Would need a helper command to build query options,
+  too (even though they'd be simple objects where a dictionary would work, too)
+
+  Some examples of what could go there are below.
+
+* Add support for DISTINCT
+
+  Easy fix, just need to figure out a way to allow the user to specify this (or disable
+  it if we make it optional). Maybe -QueryOption?
+  
+* Add support for TOP
+
+  Easy fix, but how to expose functionality to user is tougher. Another -QueryOption?
+
+* Add support for CTEs
+
+  Another easy fix since this is just a string that would be appended to the beginning of
+  the query. Probably just make a new [MagicDbInfo()] property (like 'FromClause')
+
+* Make -ReturySqlQuery also display parameter names and values
+
+  Look up whether or not variable declaration syntax is the same among RDBSs, or if there
+  are implementation specific details. If it's the same, keep string as valid SQL showing
+  the variable declarations at the top. If not, use SQL comments to comment them out, but
+  display them in a way that a user would know what's going on.
+
+  NOTE: This probably doesn't exist, but check SqlCommand to see if it has a helper method
+  to already do something like this when parameters have been specified.
+
+* Add support for SUM and AVG
+ 
+  How would we expose this to the user? I don't want to add more common parameters, so
+  I'm against having -Average and -Sum additions. Could put these inside -QueryOption, and
+  maybe offer optional -GroupBy with a hashtable:
+
+  Get-Product -GroupBy Color, 
+        @{Aggregate='SUM'; Parameter='Cost'; ColumnName='OptionalName'},   # This one would have a 'OptionalName' property on the return object
+        @{Aggregate='AVG'; Parameter='Cost'}                               # This one would have a dynamically generated property name, e.g., CostAvg
+
+  Doing it this way, we could also do COUNT this way to find counts of specific columns.
+
+* Add support for HAVING clause
+
+  Again, problem is how to expose this to the user. I don't want extra common parameters,
+  but dynamic parameters that go live when -GroupBy has been used *might* not be too terrible.
+
+  If current -GroupBy functionality were used, something like this might be useful:
+  
+  PS> Get-Product -GroupBy Color, Category -RowCountGreaterThan 4
+
+  And if AVG or SUM used, then the resulting property names could get their own paramters, too.
+
+  Not sure how to deal with a HAVING clause that's just dynamically generated without
+  assigning the result to a column. The answer will probably be to stuff it into -QueryOption,
+  though.
+
+* Documentation!
+
+    - DebugMode
+    - NoParameter
+
+* Tests!
+    - Test that when passing dict to a parameter, that the following happens:
+        o If unsupported names are passed, a warning is displayed. Currently this only applies to
+          'ParameterInformation' and 'OutputValueType'
+        o Displays a warning when an completely unimplemented option is specified
+    - NoParameter
+
+* Implement opposite of NoParameter
+
+  NoParameter allows you to have a column returned in the results, but not have it show up as a
+  parameter, so you can't filter on it.
+
+  We need the opposite of that, too, where you can filter on something via a parameter, but that
+  column isn't returned in the results.
+
+* Get rid of any place users calling functions get to place arbitrary text
+
+  Didn't take this very seriously in earliest versions, but now that queries are parameterized, need
+  to find any other places where users can add arbitrary text and at least put checks on them.
+
+  One place I know this is a problem is 'ConditionalOperator' for parameters. Right now, you can
+  type anything there. I'm not so much worried about the [MagicDbProp()] attribute, since the module
+  author should be able to do whatever they want, but end users shouldn't be able to do that.
+
+  Having ConditionalOperator is very useful, so the fix should just be that the operators are whitelisted
+  (a ValidateSet() in the function that takes the hashtable as input should fix this).
+
+  Anyway, all points where users can provide input need to be checked for holes like the ConditionalOperator,
+  and they need to be fixed.
+
+* Allow default value so that calls with no parameters can have WHERE filtering
+
+  I think that allowing [DbColumnProp()] to take a 'Value' would fix this. I basically want to
+  have the ability to do WHERE filtering even when users don't provide a parameter, but to have
+  that overwritte if they do.
+
+  If you, as the module author, want to always work with some subset, then a subtable or CTE could
+  be used, but sometimes you may just want a default view with no parameters to provide some
+  filtering, but still have the option for users to see EVERYTHING.
+
+* Version the DatabaseReporter.ps1 file
+
+  At the top, provide a magic variable (or store it in the magic dictionary that 
+  was discussed earlier) that holds a version. This thing should be pre-1.0 until 
+  most of the items in this list have been worked through.
+
+  If the version is documented, though, module authors can put a test in their 
+  modules to bail out if a certain condition they care about is met (like if the
+  major version # is different).
