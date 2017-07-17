@@ -7,6 +7,11 @@ else {
     $TabExpansionAvailable = $false
 }
 
+# Call this to ensure nothing is exported from the module by default. Each call
+# to DbReaderCommand will manually export that command as the module is being
+# imported.
+Export-ModuleMember
+
 #region Constants/script-scope variables
 $__FakeAttributes = @{
     DbCommandInfoAttributeName = 'MagicDbInfo'

@@ -41,7 +41,20 @@ Describe 'Basic Functionality' {
         Get-Command -Module $WorkingMod.Name | Where-Object Name -notin HelpTest1, HelpTest2 | Should BeNullOrEmpty
     }
 
-    It 'FromClause works without ''FROM'' keyword' {
+    It 'Exports only defined commands, and exports nothing if no commands defined' {
+        
+        $WorkingMod = New-Module -Name ExportCommandTest -ScriptBlock {
+            
+            . { $DatabaseReporterLocation }
+            
+        }
+
+        $WorkingMod.ExportedCommands | Should BeNullOrEmpty
+        $WorkingMod.ExportedAliases | Should BeNullOrEmpty
+        $WorkingMod.ExportedVariables | Should BeNullOrEmpty
+    }
+
+    It 'FromClause works with and without ''FROM'' keyword' {
 
         $TestMod = New-Module -Name DBTest -ScriptBlock {
             $DebugMode = $true
