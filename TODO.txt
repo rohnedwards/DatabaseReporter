@@ -207,3 +207,10 @@
 * Should be able to put optional code inside begin {} process {} and end {} blocks. An example of when
   this would be useful would be when you need to change the FROM clause because of a certain set of
   inputs. This is not high priority right now, though.
+
+* Working with AdventureWorks database, I came across a 'CurrentFlag' column, and I named it 'Current'.
+  That appears to be a SQL keyword, and I get an error when trying to execute the query. Can't write a
+  failing test for this without a live DB to query (at least I don't think I can). How do we handle this?
+  Is there a C# class that will let us get a dynamic list of keywords so we can warn authors? Should we
+  wrap colum name aliases in brackets? Is that only good for SQL server, and do other RDBMs use different
+  escape characters?
