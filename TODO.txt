@@ -28,6 +28,12 @@
   the 'DbConnection' property in [MagicDbInfo()] to '{ $DbConnection }' doesn't
   work because of variable scoping and overwriting issues (going off memory right
   here)
+
+  Update: The reference command REALLY needs this done ASAP. Adding a failing test
+  for this, but basically any parameter used inside the ReferenceCommand can't be
+  added to the param() block b/c it will collide. Need to rename all of them to
+  use '__' prefix, and then we can also use AST to generate a list of ReferenceCommand
+  variables and test any parameters in the param() block.
   
   Ideally, this whole thing would just be a sub-module that a module could import
   so that this isn't a problem at all, but I believe the DbReaderCommand function
@@ -187,3 +193,17 @@
   If the version is documented, though, module authors can put a test in their 
   modules to bail out if a certain condition they care about is met (like if the
   major version # is different).
+
+* InvokeReaderCommand should deal with duplicates in a sane way
+  
+  Dupes were ignored (last one won), but now logic is present to ignore duplicate names and values,
+  and to create an automatic suffix so that both values get added to the return properties. I at one
+  time tried to use the [CommandBehavior] flags to ExecuteReader() to get schema information, but I
+  had trouble getting that to always show up properly. That would be ideal, though (assuming the
+  overhead isn't too high...I never got far enough to where I cared), since the property name could
+  include the table it came from. Not too big a deal, though, since this is only an issue if a command
+  is run in no [MagicDbInfo()] mode where SELECT * is activated.
+
+* Should be able to put optional code inside begin {} process {} and end {} blocks. An example of when
+  this would be useful would be when you need to change the FROM clause because of a certain set of
+  inputs. This is not high priority right now, though.

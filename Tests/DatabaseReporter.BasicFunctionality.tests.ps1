@@ -187,4 +187,58 @@ Describe 'Basic Functionality' {
         $Expected = "SELECT Customers.CustomerID as CustomerID* FROM Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId*" | NormalizeQuery
         Get-Customer -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
     }
+
+    It 'SELECT * When No [MagicDbColumn()] attributes specified' {
+
+        $TestMod = New-Module -Name DBTest -ScriptBlock {
+            $DebugMode = $true
+
+            . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+            $Connection = New-Object System.Data.SqlClient.SqlConnection ('')
+            Set-DbReaderConnection $Connection
+
+            DbReaderCommand Get-Customer {
+                [MagicDbInfo(
+                    FromClause = 'Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId'
+                )]
+                param(
+                    [int] $CustomerId,
+                    [string] $FirstName,
+                    [string] $LastName,
+                    [string] $Title
+                )
+            }
+        } 
+
+        $Expected = "SELECT * FROM Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId"
+        Get-Customer -ReturnSqlQuery | Test-QueryMatch $Expected | Should Be $true 
+    }
+
+    It 'InvokeReaderCommand handles duplicate properties' {
+        # InvokeReaderCommand needs to be modified so that the executing of the reader command is separate
+        # so that part can be mocked. Might have to create a dummy C# class to mimic a reader object, too :(
+    }
+
+    It 'DbReaderCommand parameters don''t conflict with ReferenceCommand parameters' {
+
+        $TestMod = New-Module -Name DBTest -ScriptBlock {
+            $DebugMode = $true
+            . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+            Set-DbReaderConnection (New-Object System.Data.SqlClient.SqlConnection '')
+
+            DbReaderCommand Get-Demographics {
+                [MagicDbInfo(
+                    FromClause = 'Sales.vPersonDemographics demo
+                    FULL JOIN Person.Person person ON demo.BusinessEntityID = person.BusinessEntityID'
+                )]
+                param(
+                    [string] $Param # $Param is a variable used in the reference script block (at the time of the test)
+                )
+            }
+        }
+        
+        { Get-Demographics -ReturnSqlQuery -ErrorAction Stop } | Should Not Throw
+    }
 }

@@ -176,7 +176,12 @@ $MyCommandName = $MyCommandMetaData.Name
         }
 
         $null = $SqlQuerySb.AppendFormat('SELECT{0}', $JoinSpacingString)
-        $null = $SqlQuerySb.AppendLine(($StringList -join ",$JoinSpacingString"))
+        if ($StringList) {
+            $null = $SqlQuerySb.AppendLine(($StringList -join ",$JoinSpacingString"))
+        }
+        else {
+            $null = $SqlQuerySb.AppendLine('*')
+        }
 
         $ValidOrderByParameterNames = $StringList | select-string "(?<=\sas\s)(.*)$" | ForEach-Object Matches | ForEach-Object Value
         $StringList.Clear()
@@ -836,8 +841,18 @@ function InvokeReaderCommand {
 
                     if ([System.DBNull]::Value.Equals($Value)) { $Value = $script:__OutputNullReplacementString }
 
-                    if ($RecordObjectProperties.Contains($Name)) {
-                        Write-Warning "$Name already exists. Property is going to be overwritten right now, but the InvokeReaderCommand function will be changed at some point so that a new Property will be created instead..."
+                    if ($RecordObjectProperties.Contains($Name) -and $RecordObjectProperties[$Name] -ne $Value) {
+                        # If there's a duplicate, but the value is the same, don't worry about it and keep moving.
+                        # If there's a duplicate name with a different value, though, we want to save that. First
+                        # version is going to be inefficient until we can get enough data together to test out making
+                        # a better way. First shot is going to simply append a suffix with a #, and keep incrementing
+                        # the # until it finds an available property name.
+
+                        $Suffix = '_dupe'
+                        $DupeIndex = 1
+                        while ($RecordObjectProperties.Contains(($Name = "${Name}${Suffix}${DupeIndex}"))) {
+                            $DupeIndex++
+                        }
                     }
 
                     $RecordObjectProperties[$Name] = $Value
