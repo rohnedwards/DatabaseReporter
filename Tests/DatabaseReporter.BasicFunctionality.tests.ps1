@@ -99,7 +99,64 @@ Describe 'Basic Functionality' {
             }
         } 
 
-        $Expected = "SELECT Customers.CustomerID as CustomerID* FROM Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId*" | NormalizeQuery
+        $Expected = "SELECT Customers.CustomerID as CustomerID*Customers.Title AS Title FROM Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId*" | NormalizeQuery
+        Get-CustomerNoFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
+        Get-CustomerWithFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
+    }
+
+    It 'FromClause works with and without ''FROM'' keyword with extra linebreaks and schema' {
+
+        $TestMod = New-Module -Name DBTest -ScriptBlock {
+            $DebugMode = $true
+
+            . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+            DbReaderCommand Get-CustomerNoFrom {
+                [MagicDbInfo(
+                    FromClause = '
+                        Customers 
+                        JOIN Orders 
+                            on Customers.CustomerId = Orders.CustomerId
+                    ',
+                    DbConnectionString = 'FakeConnectionString',
+                    DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                )]
+                param(
+                    [MagicDbProp(ColumnName='Customers.CustomerId')]
+                    [int] $CustomerId,
+                    [MagicDbProp(ColumnName='Customers.FirstName')]
+                    [string] $FirstName,
+                    [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
+                    [string] $LastName,
+                    [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
+                    [string] $Title
+                )
+            }
+
+            DbReaderCommand Get-CustomerWithFrom {
+                [MagicDbInfo(
+                    FromClause = '
+                        FROM Customers 
+                        JOIN Orders 
+                            on Customers.CustomerId = Orders.CustomerId
+                    ',
+                    DbConnectionString = 'FakeConnectionString',
+                    DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                )]
+                param(
+                    [MagicDbProp(ColumnName='Customers.CustomerId')]
+                    [int] $CustomerId,
+                    [MagicDbProp(ColumnName='Customers.FirstName')]
+                    [string] $FirstName,
+                    [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
+                    [string] $LastName,
+                    [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
+                    [string] $Title
+                )
+            }
+        } 
+
+        $Expected = "SELECT Customers.CustomerID as CustomerID*Customers.Title AS Title FROM Schema.Customers JOIN Schema.Orders on Customers.CustomerId = Orders.CustomerId*" | NormalizeQuery
         Get-CustomerNoFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
         Get-CustomerWithFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
     }
