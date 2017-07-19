@@ -298,4 +298,27 @@ Describe 'Basic Functionality' {
         
         { Get-Demographics -ReturnSqlQuery -ErrorAction Stop } | Should Not Throw
     }
+
+    It '[datetime] columns can search for $null' {
+
+        $TestMod = New-Module -Name DBTest -ScriptBlock {
+            $DebugMode = $true
+            #. "$PSScriptRoot\..\DatabaseReporter.ps1"
+            . "$pwd\DatabaseReporter.ps1"
+
+            Set-DbReaderConnection (New-Object System.Data.SqlClient.SqlConnection '')
+
+            DbReaderCommand Get-Demographics {
+                [MagicDbInfo(
+                    FromClause = 'Sales.vPersonDemographics demo
+                    FULL JOIN Person.Person person ON demo.BusinessEntityID = person.BusinessEntityID'
+                )]
+                param(
+                    [datetime] $DateTimeColumn
+                )
+            }
+        }
+        
+        { Get-Demographics -ReturnSqlQuery -DateTimeColumn $null } | Should Not Throw
+    }
 }
