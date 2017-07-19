@@ -92,16 +92,6 @@
   Another easy fix since this is just a string that would be appended to the beginning of
   the query. Probably just make a new [MagicDbInfo()] property (like 'FromClause')
 
-* Make -ReturySqlQuery also display parameter names and values
-
-  Look up whether or not variable declaration syntax is the same among RDBSs, or if there
-  are implementation specific details. If it's the same, keep string as valid SQL showing
-  the variable declarations at the top. If not, use SQL comments to comment them out, but
-  display them in a way that a user would know what's going on.
-
-  NOTE: This probably doesn't exist, but check SqlCommand to see if it has a helper method
-  to already do something like this when parameters have been specified.
-
 * Add support for SUM and AVG
  
   How would we expose this to the user? I don't want to add more common parameters, so

@@ -220,6 +220,19 @@ $MyCommandName = $MyCommandMetaData.Name
             # behavior of the command to just return this string instead of executing
             # the command
             $SqlQuery
+            if ($CombinedDbReaderInfo.QueryParameters.Keys) {
+                $MaxWidth = $CombinedDbReaderInfo.QueryParameters.Keys.Length | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
+                $ParamStrings = foreach ($Entry in $CombinedDbReaderInfo.QueryParameters.GetEnumerator()) {
+                    "  {0,${MaxWidth}}: {1}" -f $Entry.Name, $Entry.Value
+                }
+@'
+
+/*
+Parameters:
+{0}
+*/
+'@ -f ($ParamStrings -join "`n")
+            }
         }
         else {
             # Make a copy since we might add a pstype name
