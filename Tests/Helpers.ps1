@@ -7,10 +7,14 @@ function NormalizeQuery {
         [string] $Query
     )
     begin {
-       $ReplaceRegex = '(\s|\n|\r)+' 
+        $ReplaceRegex = '(\s|\n|\r)+' 
     }
     process {
-       $Query -replace $ReplaceRegex, ' ' | % Trim
+        if ($Query -match '(?s)^\s*\/\*.*\*\/\s*$') {
+            # Exit w/o doing anything since this seems to be the parameter value string
+            return
+        } 
+        $Query -replace $ReplaceRegex, ' ' | ForEach-Object Trim
     }
 }
 

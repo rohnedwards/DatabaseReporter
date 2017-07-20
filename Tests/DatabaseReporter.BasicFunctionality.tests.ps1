@@ -303,8 +303,7 @@ Describe 'Basic Functionality' {
 
         $TestMod = New-Module -Name DBTest -ScriptBlock {
             $DebugMode = $true
-            #. "$PSScriptRoot\..\DatabaseReporter.ps1"
-            . "$pwd\DatabaseReporter.ps1"
+            . "$PSScriptRoot\..\DatabaseReporter.ps1"
 
             Set-DbReaderConnection (New-Object System.Data.SqlClient.SqlConnection '')
 
@@ -314,11 +313,12 @@ Describe 'Basic Functionality' {
                     FULL JOIN Person.Person person ON demo.BusinessEntityID = person.BusinessEntityID'
                 )]
                 param(
+                    [MagicDbProp(ColumnName='StartTime')]
                     [datetime] $DateTimeColumn
                 )
             }
         }
         
-        { Get-Demographics -ReturnSqlQuery -DateTimeColumn $null } | Should Not Throw
+        Get-Demographics -ReturnSqlQuery -DateTimeColumn $null | NormalizeQuery | Should BeLike '*((StartTime IS NULL))*'
     }
 }
