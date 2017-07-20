@@ -1326,12 +1326,12 @@ function DemoAddDbReaderInfo {
         # 
         # If $null was the only thing that came through, that value is @(), and a coercion attempt will be made. As long
         # as -OutputType is an array, it should work just fine.
-        foreach ($CurrentReaderInfo in $CollectedReaderInfos.Value) {
-            if (($ReturnValue = $CurrentReaderInfo -as $OutputType) -is [object]) {
+        foreach ($CurrentReaderInfo in $CollectedReaderInfos) {
+            if (($ReturnValue = $CurrentReaderInfo.Value -as $OutputType) -is [object]) {
                 return , $ReturnValue
             }
         }
-        
+
         Write-Warning "Unable to coerce a value to attach a DbReaderInfo to..."
     }
 }
