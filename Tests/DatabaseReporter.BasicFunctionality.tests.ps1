@@ -313,7 +313,8 @@ Describe 'Basic Functionality' {
         } 
 
         $Expected = "SELECT * FROM Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId"
-        Get-Customer -ReturnSqlQuery | Test-QueryMatch $Expected | Should Be $true 
+        # Gotta fix the parameter list in -ReturnSql. Maybe use Write-Host?
+        Get-Customer -ReturnSqlQuery | NormalizeQuery | Test-QueryMatch $Expected | Should Be $true 
     }
 
     It 'InvokeReaderCommand handles duplicate properties' {
