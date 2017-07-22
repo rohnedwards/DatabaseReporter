@@ -550,19 +550,39 @@ function DbReaderCommand {
     }
     else {
         $EvaluatedFromClause = $DefinitionParsedParamBlock.DbInfo['FromClause'] | 
-            EvaluateAttributeArgumentValue -LimitAstToType StringConstantExpressionAst, ExpandableStringExpressionAst -DontEvaluateScriptBlocks -Verbose -LimitNumberOfElements 1 |
+#            EvaluateAttributeArgumentValue -LimitAstToType StringConstantExpressionAst, ExpandableStringExpressionAst -DontEvaluateScriptBlocks -Verbose -LimitNumberOfElements 1 |
             Add-Member -MemberType ScriptProperty -Name FormattedStrings -Value {
-            $FromString = if ($this -is [scriptblock]) {
-                & $this
-            }
-            else {
-                $this.ToString()
-            }
-        
-            [string[]] $TrimmedLines = $FromString.Split("`n", [System.StringSplitOptions]::RemoveEmptyEntries).Trim()
-            $TrimmedLines[0] = $TrimmedLines[0].TrimStart("FROM ")
+                $FromString = if ($this -is [scriptblock]) {
+                    & $this
+                }
+                else {
+                    $this.ToString()
+                }
+            
+                $TrimmedLines = $FromString -split "`r?`n" -match '\S' -replace '\s*$'
 
-            $TrimmedLines
+                # Not ready to fully "pretty up" the FROM clause (too many different valid formats
+                # to deal with), so, we'll settle on something fairly simple: take original formatting
+                # assuming the start should be left justified. That means figure out if there are any
+                # spaces in front of it (also get rid of FROM if found since FromClause doesn't store
+                # that) and use that as the maximum # of spaces to replace for the other strings
+                #
+                # Project for another day: Fix this condition:
+                # FromClause = 'Table
+                #               JOIN Table2'
+                #
+                # No spaces would be removed from the JOIN line, and the query would be ugly. Since the
+                # spaces don't hurt the query's functionality, we'll revist this another time
+                if ($TrimmedLines[0] -match '^(?<spaces>\s*)(FROM\s*)?(?<therest>.*)$') {
+                    $matches.therest
+                    $MaxNumberOfSpacesToDelete = [int] $matches.spaces.length
+                    for ($i = 1; $i -lt $TrimmedLines.Count; $i++) {
+                        $TrimmedLines[$i] -replace "^\s{0,${MaxNumberOfSpacesToDelete}}"
+                    }
+                }
+                else {
+                    $TrimmedLines
+                }
         } -PassThru
 
         $CommandDbInformation['FromClause'] = $EvaluatedFromClause
@@ -2082,49 +2102,33 @@ value goes through here, though, improvements made to it will propagate everywhe
     )
 
     process {
-#        Write-Warning 'Evaluate function still needs lots of work!'
         $UncoercedOutput = switch ($InputObject.GetType().Name) {
             string {
                 $InputObject
             }
 
             scriptblock {
-Write-Verbose 'Scriptblock processing...'
                 $OriginalScriptBlockAst = $InputObject.Ast.Copy()
                 $NewSbBuilder = New-Object System.Text.StringBuilder
 
-                Write-Warning "Slow here because AST classes need to be cached"
+                Write-Warning "Temporary slowdown here until EvaluateAttributeArgumentValue function is optimized"
+                # Need to cache AST info to speed this up!
                 $ValidAstTypes = GetInheritedClasses -ParentType $LimitAstToType | Select-Object -Unique
 
                 foreach ($CurrentBlock in Write-Output ParamBlock, BeginBlock, ProcessBlock, DynamicParamBlock, EndBlock) {
-Write-Verbose "Looking at $CurrentBlock"
                     if ($OriginalScriptBlockAst.$CurrentBlock) {
                         if ($CurrentBlock -ne 'EndBlock') {
                             Write-Error "$CurrentBlock isn't supported for attribute scriptblocks! This block will be ignored"
                             continue
                         }
 
-                        $CurrentBlockText = $OriginalScriptBlockAst.$CurrentBlock.Extent.Text
                         $GroupedElements = $OriginalScriptBlockAst.$CurrentBlock.FindAll({$args[0].GetType() -in $ValidAstTypes}, $false) | Group-Object { '{0}{1}' -f $_.Extent.StartLineNumber, $_.Extent.Text }
 
                         if ($LimitNumberOfElements) {
                             $GroupedElements = $GroupedElements | Select-Object -First $LimitNumberOfElements
                         }
-<#                        
-                        $Elements | Add-Member -MemberType ScriptProperty -Name Depth -Value { 
-                            $i = 0
-                            $current = $this
-                            while ($current.Parent -isnot [System.Management.Automation.Language.NamedBlockAst] -and $i -lt 100) { 
-                                $i++
-                                $current = $current.Parent 
-                            } 
-                            $i 
-                        }
-#>
 
-                            Where-Object { $_.Parent -is [System.Management.Automation.Language.NamedBlockAst] }
-#                            where { $_.Parent.Extent.Text -eq $CurrentBlockText }
-Write-Debug "Filtered elements"
+                        Where-Object { $_.Parent -is [System.Management.Automation.Language.NamedBlockAst] }
 
                         foreach ($Group in $GroupedElements) {
                             $null = $NewSbBuilder.AppendLine($Group.Group[-1].Extent.Text)
@@ -2135,7 +2139,6 @@ Write-Debug "Filtered elements"
                 $NewScriptBlock = [scriptblock]::Create($NewSbBuilder.ToString())
 
                 if ($OriginalScriptBlock.Module) {
-Write-Verbose 'Binding new scriptblock to the same module as the reference one'
                     $NewScriptBlock = $OriginalScriptBlock.Module.NewBoundScriptBlock($NewScriptBlock)
                 }
                 

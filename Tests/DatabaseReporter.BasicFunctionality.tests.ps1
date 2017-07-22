@@ -104,7 +104,7 @@ Describe 'Basic Functionality' {
         Get-CustomerWithFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
     }
 
-    It 'FromClause works with and without ''FROM'' keyword with extra linebreaks and schema' {
+    It 'FromClause works with and without ''FROM'' keyword with extra linebreaks' {
 
         $TestMod = New-Module -Name DBTest -ScriptBlock {
             $DebugMode = $true
@@ -156,11 +156,55 @@ Describe 'Basic Functionality' {
             }
         } 
 
-        $Expected = "SELECT Customers.CustomerID as CustomerID*Customers.Title AS Title FROM Schema.Customers JOIN Schema.Orders on Customers.CustomerId = Orders.CustomerId*" | NormalizeQuery
+        $Expected = "SELECT Customers.CustomerID as CustomerID*Customers.Title AS Title FROM Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId*" | NormalizeQuery
         Get-CustomerNoFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
         Get-CustomerWithFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
     }
     
+    It 'Dynamic FROM works with ScriptBlock' {
+
+        $TestMod = New-Module -Name DBTest -ScriptBlock {
+            $DebugMode = $true
+
+            . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+            $FakeConnection = New-Object System.Data.SqlClient.SqlConnection ''
+            Set-DbReaderConnection $FakeConnection
+
+            DbReaderCommand Get-CustomerDynamicFrom {
+                [MagicDbInfo(
+                    FromClause = {
+                        if ($UseAltCustomers) { 
+                            'AltCustomers
+                            JOIN Orders
+                                on AltCustomers.CustomerId = Orders.CustomerId'
+                        }
+                        else {
+                            'Customers 
+                            JOIN Orders 
+                                on Customers.CustomerId = Orders.CustomerId'
+                        }
+                    }
+                )]
+                param(
+                    [MagicDbProp(ColumnName='Customers.CustomerId')]
+                    [int] $CustomerId,
+                    [MagicDbProp(ColumnName='Customers.FirstName')]
+                    [string] $FirstName,
+                    [MagicDbProp(ColumnName='Customers.LastName', ComparisonOperator='ILIKE')]
+                    [string] $LastName,
+                    [MagicDbProp(ColumnName='Customers.Title', ComparisonOperator='FAKEOP')]
+                    [string] $Title,
+                    [switch] $UseAltCustomers
+                )
+            }
+        } 
+
+        $Expected = "SELECT Customers.CustomerID as CustomerID*Customers.Title AS Title FROM Customers JOIN Orders on Customers.CustomerId = Orders.CustomerId*" | NormalizeQuery
+        $AltExpected = "SELECT Customers.CustomerID as CustomerID*Customers.Title AS Title FROM AltCustomers JOIN Orders on AltCustomers.CustomerId = Orders.CustomerId*" | NormalizeQuery
+        Get-CustomerDynamicFrom -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $Expected
+        Get-CustomerDynamicFrom -UseAltCustomers -CustomerId 123, 456 -ReturnSqlQuery | NormalizeQuery | Should BeLike $AltExpected
+    }
     It 'Outputs error if no DBConnection available (<description>)' {
         param(
             [string[]] $DbInfoProps
