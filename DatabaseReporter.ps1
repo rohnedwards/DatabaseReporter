@@ -79,8 +79,8 @@ Explain generic example #2 here
         # This is the dictionary that gets set up during parameter binding that has all the information for handling
         # the WHERE clause. If no parameters are specified (at least DB column parameters), then it won't have been
         # defined, and that will be bad later. So, if it's not defined, create an empty one:
-        $PSBoundDbInfos = Get-Variable -ErrorAction SilentlyContinue -Scope 0 -Name $__DbReaderInfoTableName -ValueOnly
-        if ($null -eq $PSBoundDbInfos) { $PSBoundDbInfos = @{} }
+        $__PSBoundDbInfos = Get-Variable -ErrorAction SilentlyContinue -Scope 0 -Name $__DbReaderInfoTableName -ValueOnly
+        if ($null -eq $__PSBoundDbInfos) { $__PSBoundDbInfos = @{} }
 
         # Default parameter values need to work. The way this is set up right now, PSBoundParameters is all that's going
         # to be checked. So, let's take any default values (they'll stand out b/c they'll be variables with a value that
@@ -110,104 +110,101 @@ Explain generic example #2 here
         }
 
         Write-Verbose "begin PSBoundParameters {"
-        foreach ($Param in $PSBoundParameters.GetEnumerator()) {
-            Write-Verbose ("    {0} = {1}{2}" -f $Param.Key, ($Param.Value -join ', '), $(if ($PSBoundDbInfos.Contains($Param.Key)) {' (DBReaderInfo bound)'})) 
+        foreach ($__Param in $PSBoundParameters.GetEnumerator()) {
+            Write-Verbose ("    {0} = {1}{2}" -f $__Param.Key, ($__Param.Value -join ', '), $(if ($__PSBoundDbInfos.Contains($__Param.Key)) {' (DBReaderInfo bound)'})) 
         }
         Write-Verbose "}"
-
     }
 
     process {
-        
 
         Write-Verbose "process PSBoundParameters {"
-        foreach ($Param in $PSBoundParameters.GetEnumerator()) {
-            Write-Verbose ("    {0} = {1}{2}" -f $Param.Key, ($Param.Value -join ', '), $(if ($PSBoundDbInfos.Contains($Param.Key)) {' (DBReaderInfo bound)'}))
+        foreach ($__Param in $PSBoundParameters.GetEnumerator()) {
+            Write-Verbose ("    {0} = {1}{2}" -f $__Param.Key, ($__Param.Value -join ', '), $(if ($__PSBoundDbInfos.Contains($__Param.Key)) {' (DBReaderInfo bound)'}))
         }
-
         Write-Verbose "}"
 
         # For now, process block will execute multiple times when pipeline input comes in (that's nothing new). Should the process block attempt to
         # collect all the pipeline data, though, and do one query in the end block instead? Just something to think about...
 
-        $JoinSpacingString = "`n  "
-        $SqlQuerySb = New-Object System.Text.StringBuilder
+        $__JoinSpacingString = "`n  "
+        $__SqlQuerySb = New-Object System.Text.StringBuilder
 
         # Get SELECT clause info (get GROUP BY info too, just in case it's needed):
-        $StringList = New-Object System.Collections.Generic.List[string]
-        $GroupByList = New-Object System.Collections.Generic.List[string]
+        $__StringList = New-Object System.Collections.Generic.List[string]
+        $__GroupByList = New-Object System.Collections.Generic.List[string]
 
-        foreach ($Property in $__MyCommandInfo.PropertyParameters.GetEnumerator()) {
+        foreach ($__Property in $__MyCommandInfo.PropertyParameters.GetEnumerator()) {
 
-            if (-not $PSBoundParameters.ContainsKey('GroupBy') -or (ContainsMatch -Collection $GroupBy -ValueToMatch $Property.Value.PropertyName) -or (ContainsMatch -Collection $GroupBy -ValueToMatch $Property.Name)) {
-                $CurrentSelect = '{0} AS {1}' -f $Property.Value.ColumnName, $Property.Value.PropertyName
-                if (-not $StringList.Contains($CurrentSelect)) {
-                    $StringList.Add($CurrentSelect)
+            if (-not $PSBoundParameters.ContainsKey('GroupBy') -or (ContainsMatch -Collection $GroupBy -ValueToMatch $__Property.Value.PropertyName) -or (ContainsMatch -Collection $GroupBy -ValueToMatch $__Property.Name)) {
+                $__CurrentSelect = '{0} AS {1}' -f $__Property.Value.ColumnName, $__Property.Value.PropertyName
+                if (-not $__StringList.Contains($__CurrentSelect)) {
+                    $__StringList.Add($__CurrentSelect)
                 }
 
-                if (-not $GroupByList.Contains($Property.Value.ColumnName)) {
-                    $GroupByList.Add($Property.Value.ColumnName)
+                if (-not $__GroupByList.Contains($__Property.Value.ColumnName)) {
+                    $__GroupByList.Add($__Property.Value.ColumnName)
                 }
             }
         }
         
         if ($PSBoundParameters.ContainsKey('GroupBy')) {
-            if ($StringList.Count -eq 0) {
+            if ($__StringList.Count -eq 0) {
                 Write-Warning 'No -GroupBy parameters matched valid DB parameters, so Count will be the only property returned'
                 # Should this error the command out??
             }
-            $StringList.Add('COUNT(*) AS Count')
+            $__StringList.Add('COUNT(*) AS Count')
         }
 
-        $null = $SqlQuerySb.AppendFormat('SELECT{0}', $JoinSpacingString)
-        if ($StringList) {
-            $null = $SqlQuerySb.AppendLine(($StringList -join ",$JoinSpacingString"))
+        $null = $__SqlQuerySb.AppendFormat('SELECT{0}', $__JoinSpacingString)
+        if ($__StringList) {
+            $null = $__SqlQuerySb.AppendLine(($__StringList -join ",${__JoinSpacingString}"))
         }
         else {
-            $null = $SqlQuerySb.AppendLine('*')
+            $null = $__SqlQuerySb.AppendLine('*')
         }
 
-        $ValidOrderByParameterNames = $StringList | select-string "(?<=\sas\s)(.*)$" | ForEach-Object Matches | ForEach-Object Value
-        $StringList.Clear()
+        $__ValidOrderByParameterNames = $__StringList | select-string "(?<=\sas\s)(.*)$" | ForEach-Object Matches | ForEach-Object Value
+        $__StringList.Clear()
 
         # Add the FROM clause
-        $null = $SqlQuerySb.AppendFormat('FROM{0}', $JoinSpacingString)
-        $null = $SqlQuerySb.AppendLine(($__MyCommandInfo.FromClause.FormattedStrings -join $JoinSpacingString))
+        $null = $__SqlQuerySb.AppendFormat('FROM{0}', $__JoinSpacingString)
+        $null = $__SqlQuerySb.AppendLine(($__MyCommandInfo.FromClause.FormattedStrings -join $__JoinSpacingString))
 
         # Get WHERE clause info:
-        $CombinedDbReaderInfo = CombineDbReaderInfo -ParamInfoTable $PSBoundDbInfos -Negate $Negate
+        $__CombinedDbReaderInfo = CombineDbReaderInfo -ParamInfoTable $__PSBoundDbInfos -Negate $Negate
 
-        if ($CombinedDbReaderInfo.WhereString) {
-            $SqlQuerySb.AppendLine($CombinedDbReaderInfo.WhereString) | Out-Null
+        if ($__CombinedDbReaderInfo.WhereString) {
+            $__SqlQuerySb.AppendLine($__CombinedDbReaderInfo.WhereString) | Out-Null
         }
 
         # GROUP BY
-        if ($PSBoundParameters.ContainsKey('GroupBy') -and $GroupByList.Count -gt 0) {
-            $null = $SqlQuerySb.AppendFormat('GROUP BY{0}', $JoinSpacingString)
-            $null = $SqlQuerySb.AppendLine(($GroupByList -join ",$JoinSpacingString"))
+        if ($PSBoundParameters.ContainsKey('GroupBy') -and $__GroupByList.Count -gt 0) {
+            $null = $__SqlQuerySb.AppendFormat('GROUP BY{0}', $__JoinSpacingString)
+            $null = $__SqlQuerySb.AppendLine(($__GroupByList -join ",${__JoinSpacingString}"))
         }
 
         # ORDER BY
-        $OrderByStrings = if ($PSBoundParameters.ContainsKey('OrderBy')) {
-            $PSBoundParameters['OrderBy'] | NewOrderByString -ValidNames $ValidOrderByParameterNames
+        $__OrderByStrings = if ($PSBoundParameters.ContainsKey('OrderBy')) {
+            $PSBoundParameters['OrderBy'] | NewOrderByString -ValidNames $__ValidOrderByParameterNames
         }
 
-        if ($OrderByStrings.Count -gt 0) {
-            $null = $SqlQuerySb.AppendFormat('ORDER BY{0}', $JoinSpacingString)
-            $null = $SqlQuerySb.AppendLine(($OrderByStrings -join ",$JoinSpacingString"))
+        if ($__OrderByStrings.Count -gt 0) {
+            $null = $__SqlQuerySb.AppendFormat('ORDER BY{0}', $__JoinSpacingString)
+            $null = $__SqlQuerySb.AppendLine(($__OrderByStrings -join ",${__JoinSpacingString}"))
         }
 
-        $SqlQuery = $SqlQuerySb.ToString()
+        $__SqlQuery = $__SqlQuerySb.ToString()
 
         if ($PSBoundParameters['ReturnSqlQuery']) {
             # This parameter is only available in debug mode, and it changes the
             # behavior of the command to just return this string instead of executing
             # the command
-            $SqlQuery
-            if ($CombinedDbReaderInfo.QueryParameters.Keys) {
-                $MaxWidth = $CombinedDbReaderInfo.QueryParameters.Keys.Length | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
-                $ParamStrings = foreach ($Entry in $CombinedDbReaderInfo.QueryParameters.GetEnumerator()) {
-                    "  {0,${MaxWidth}}: {1}" -f $Entry.Name, $Entry.Value
+            $__SqlQuery
+            if ($__CombinedDbReaderInfo.QueryParameters.Keys) {
+                $__MaxWidth = $__CombinedDbReaderInfo.QueryParameters.Keys.Length | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
+                $__ParamStrings = foreach ($__Entry in $__CombinedDbReaderInfo.QueryParameters.GetEnumerator()) {
+                    "  {0,${__MaxWidth}}: {1}" -f $__Entry.Name, $__Entry.Value
                 }
 @'
 
@@ -215,29 +212,29 @@ Explain generic example #2 here
 Parameters:
 {0}
 */
-'@ -f ($ParamStrings -join "`n")
+'@ -f ($__ParamStrings -join "`n")
             }
         }
         else {
             # Make a copy since we might add a pstype name
-            $ConnectionParams = @{} + $__MyCommandInfo.DbConnectionParams
+            $__ConnectionParams = @{} + $__MyCommandInfo.DbConnectionParams
 
             if ($__MyCommandInfo.Contains('PSTypeName') -and -not $PSBoundParameters.ContainsKey('GroupBy')) {
                 # Only add a typename if one's defined, and if command is not in GroupBy mode (that will change
                 # the look of the object)
-                $ConnectionParams['PSTypeName'] = $__MyCommandInfo['PSTypeName']
+                $__ConnectionParams['PSTypeName'] = $__MyCommandInfo['PSTypeName']
             }
 
-            Write-Debug "About to execute:`n$SqlQuery"
+            Write-Debug "About to execute:`n${__SqlQuery}"
 
-            InvokeReaderCommand -Query $SqlQuery @ConnectionParams -QueryParameters $CombinedDbReaderInfo.QueryParameters
+            InvokeReaderCommand -Query $__SqlQuery @__ConnectionParams -QueryParameters $__CombinedDbReaderInfo.QueryParameters
         }
     }
 
     end {
         Write-Verbose "end PSBoundParameters {"
-        foreach ($Param in $PSBoundParameters.GetEnumerator()) {
-            Write-Verbose ("    {0} = {1}{2}" -f $Param.Key, ($Param.Value -join ', '), $(if ($PSBoundDbInfos.Contains($Param.Key)) {' (DBReaderInfo bound)'})) 
+        foreach ($__Param in $PSBoundParameters.GetEnumerator()) {
+            Write-Verbose ("    {0} = {1}{2}" -f $__Param.Key, ($__Param.Value -join ', '), $(if ($__PSBoundDbInfos.Contains($__Param.Key)) {' (DBReaderInfo bound)'})) 
        }
         Write-Verbose "}"
     }
@@ -309,7 +306,7 @@ In the future, this function will probably take on more work...
         }
 
         $WhereString = if ($AllWhereConditions) {
-            "WHERE${JoinSpacingString}{0}" -f ($AllWhereConditions -join " AND${JoinSpacingString}")  # NEED TO MAKE AND CONFIGURABLE; $JoinSpacingString is in parent scope, which is BAD. FIX IT!!
+            "WHERE${__JoinSpacingString}{0}" -f ($AllWhereConditions -join " AND${__JoinSpacingString}")  # NEED TO MAKE AND CONFIGURABLE; $__JoinSpacingString is in parent scope, which is BAD. FIX IT!!
         }
 
         [PSCustomObject] @{

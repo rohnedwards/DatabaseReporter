@@ -29,11 +29,17 @@
   work because of variable scoping and overwriting issues (going off memory right
   here)
 
-  Update: The reference command REALLY needs this done ASAP. Adding a failing test
-  for this, but basically any parameter used inside the ReferenceCommand can't be
-  added to the param() block b/c it will collide. Need to rename all of them to
-  use '__' prefix, and then we can also use AST to generate a list of ReferenceCommand
-  variables and test any parameters in the param() block.
+  Reference command has been rewritten to have '__' before all private variables.
+  That should mean there are no accidental overwrites (except maybe for the common
+  parameters like $GroupBy or $OrderBy), but we should still have a way to warn
+  users if a parameter is being overwritten by a parameter in the param() block.
+  Basically, if an author defines something in their param() block that conflicts
+  with one of our internal, private variables, bad things will happen. Need to
+  use AST parser to get a list of all of the variables (see end of this for an
+  example), and prevent script from allowing those params() to take effect. Example
+  of AST parsing:
+
+    $ScriptBlockHere.Ast.FindAll( { $args[0] -is [System.Management.Automation.Language.VariableExpressionAst] }, $true) | % ToString
   
   Ideally, this whole thing would just be a sub-module that a module could import
   so that this isn't a problem at all, but I believe the DbReaderCommand function
