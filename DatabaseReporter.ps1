@@ -72,24 +72,8 @@ Explain generic example #2 here
 
     begin {
         
-        # If prefix was used at import time, we're going to have problems looking the
-        # command up. Let's figure out the real command name:
-        $MyCommandMetaData = $PsCmdlet.MyInvocation.MyCommand
-
-<#
-        $MyCommandName = if (($ModulePrefix = $MyCommandMetaData.Module.Prefix) -and $MyCommandMetaData.Verb -and $MyCommandMetaData.Noun) {
-            '{0}-{1}' -f $MyCommandMetaData.Verb, ($MyCommandMetaData.Noun -replace "^$([regex]::Escape($ModulePrefix))")
-        }
-        else {
-            $MyCommandMetaData.Name
-        }
-#>
-$MyCommandName = $MyCommandMetaData.Name
-        # $MyCommandInfo will hold the command declaration info
-        $MyCommandInfo = $__CommandDeclarations[$MyCommandName]
-
-        if (-not $MyCommandInfo) {
-            throw "Unable to get command information for '$MyCommandName'"
+        if (-not $__MyCommandInfo) {
+            throw "Unable to get command information for '$($PsCmdlet.MyInvocation.MyCommand.Name)'"
         }
 
         # This is the dictionary that gets set up during parameter binding that has all the information for handling
@@ -114,7 +98,7 @@ $MyCommandName = $MyCommandMetaData.Name
                 Write-Verbose "  ...one of those conditions was met! Setting PSBoundParameter to show value of $__ParamDefaultValue"
 
                 # If this is a DB property, we need to make sure the DbReaderInfo is attached
-                if ($MyCommandInfo.PropertyParameters.Contains($__ParameterName)) {
+                if ($__MyCommandInfo.PropertyParameters.Contains($__ParameterName)) {
                     Write-Verbose "     (Attaching DBReaderInfo property first)"
                     $__ParamDefaultValue = AddDbReaderInfo -InputObject $__ParamDefaultValue -OutputType $PSCmdlet.MyInvocation.MyCommand.Parameters[$__ParameterName].ParameterType -CommandName $PsCmdlet.MyInvocation.MyCommand.Name -ParameterName $__ParameterName
                 }
@@ -153,7 +137,7 @@ $MyCommandName = $MyCommandMetaData.Name
         $StringList = New-Object System.Collections.Generic.List[string]
         $GroupByList = New-Object System.Collections.Generic.List[string]
 
-        foreach ($Property in $MyCommandInfo.PropertyParameters.GetEnumerator()) {
+        foreach ($Property in $__MyCommandInfo.PropertyParameters.GetEnumerator()) {
 
             if (-not $PSBoundParameters.ContainsKey('GroupBy') -or (ContainsMatch -Collection $GroupBy -ValueToMatch $Property.Value.PropertyName) -or (ContainsMatch -Collection $GroupBy -ValueToMatch $Property.Name)) {
                 $CurrentSelect = '{0} AS {1}' -f $Property.Value.ColumnName, $Property.Value.PropertyName
@@ -188,7 +172,7 @@ $MyCommandName = $MyCommandMetaData.Name
 
         # Add the FROM clause
         $null = $SqlQuerySb.AppendFormat('FROM{0}', $JoinSpacingString)
-        $null = $SqlQuerySb.AppendLine(($MyCommandInfo.FromClause.FormattedStrings -join $JoinSpacingString))
+        $null = $SqlQuerySb.AppendLine(($__MyCommandInfo.FromClause.FormattedStrings -join $JoinSpacingString))
 
         # Get WHERE clause info:
         $CombinedDbReaderInfo = CombineDbReaderInfo -ParamInfoTable $PSBoundDbInfos -Negate $Negate
@@ -236,12 +220,12 @@ Parameters:
         }
         else {
             # Make a copy since we might add a pstype name
-            $ConnectionParams = @{} + $MyCommandInfo.DbConnectionParams
+            $ConnectionParams = @{} + $__MyCommandInfo.DbConnectionParams
 
-            if ($MyCommandInfo.Contains('PSTypeName') -and -not $PSBoundParameters.ContainsKey('GroupBy')) {
+            if ($__MyCommandInfo.Contains('PSTypeName') -and -not $PSBoundParameters.ContainsKey('GroupBy')) {
                 # Only add a typename if one's defined, and if command is not in GroupBy mode (that will change
                 # the look of the object)
-                $ConnectionParams['PSTypeName'] = $MyCommandInfo['PSTypeName']
+                $ConnectionParams['PSTypeName'] = $__MyCommandInfo['PSTypeName']
             }
 
             Write-Debug "About to execute:`n$SqlQuery"
@@ -743,22 +727,26 @@ else {
     $null = $NewCommandStringBuilder.AppendLine($AllParameters -join ",`n")
     $null = $NewCommandStringBuilder.AppendLine(')')
 
-<# THIS MIGHT BE A GOOD IDEA ONE DAY. FOR NOW, THOUGH, TURNING IT OFF
-
-    # Execute statements in the begin, process and end blocks:
-    foreach ($BlockKind in echo begin, process, end) {
-        Write-Verbose "Executing statements in $BlockKind block..."
-        foreach ($Statement in $Definition.Ast."${BlockKind}Block".Statements) {
-            Invoke-Expression $Statement
-        }
-    }
-#>
     #endregion
 
-    # Add begin {} process {} and end {} blocks from the reference command. For now, those code blocks
-    # are completely ignored if they are defined in the new defintion...
-    foreach ($BlockKind in Write-Output Begin, Process, End) {
-        $null = $NewCommandStringBuilder.AppendLine($ReferenceCommandScriptBlock.Ast."${BlockKind}Block".Extent.Text)
+    # Add begin {} process {} and end {} blocks from the reference command. For 
+    # now, those code blocks are completely ignored if they are defined in the 
+    # new defintion...that can easily be fixed one day by looping through the
+    # $Definition.Ast."${BlockKind}Block"
+    #
+    foreach ($BlockKind in Write-Output begin, process, end) {
+        $null = $NewCommandStringBuilder.AppendLine("    ${BlockKind} {")
+        if ($BlockKind -eq 'Begin') {
+            # Hard code the command name in the begin{} block so that module
+            # prefixes don't matter
+            $null = $NewCommandStringBuilder.AppendLine('        $__MyCommandInfo = $__CommandDeclarations[''{0}'']' -f $CommandName)
+        }
+
+        foreach ($Statement in ($ReferenceCommandScriptBlock.Ast."${BlockKind}Block".Extent.Text -split "`r?`n" | Select-Object -Skip 1)) {
+            if ($Statement -notmatch '^\s*Write-(Verbose|Debug)' -or $DebugMode) {
+                $null = $NewCommandStringBuilder.AppendLine($Statement)
+            }
+        }
     }
 
     $FinalCommandScriptBlock = [scriptblock]::Create($NewCommandStringBuilder.ToString())

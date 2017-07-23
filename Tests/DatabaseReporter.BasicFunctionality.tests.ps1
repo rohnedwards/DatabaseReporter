@@ -366,4 +366,28 @@ Describe 'Basic Functionality' {
         
         Get-Demographics -ReturnSqlQuery -DateTimeColumn $null | NormalizeQuery | Should BeLike '*((StartTime IS NULL))*'
     }
+
+    It 'Works with Module Prefix' {
+
+        $TestMod = New-Module -Name DBTest -ScriptBlock {
+            $DebugMode = $true
+            . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+            Set-DbReaderConnection (New-Object System.Data.SqlClient.SqlConnection '')
+
+            DbReaderCommand Get-Demographics {
+                [MagicDbInfo(
+                    FromClause = 'Sales.vPersonDemographics demo
+                    FULL JOIN Person.Person person ON demo.BusinessEntityID = person.BusinessEntityID'
+                )]
+                param(
+                    [MagicDbProp(ColumnName='StartTime')]
+                    [datetime] $DateTimeColumn
+                )
+            }
+        }
+
+        $TestModPrefix = $TestMod | Import-Module -Prefix Blah
+        Get-BlahDemographics -ReturnSqlQuery -DateTimeColumn $null | NormalizeQuery | Should BeLike '*((StartTime IS NULL))*'
+    }
 }
