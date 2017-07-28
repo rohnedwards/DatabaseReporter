@@ -21,7 +21,7 @@ $__FakeAttributes = @{
     DbFormatTableInfo = 'MagicDbFormatTableColumn'
 }
 $__OutputNullReplacementString = '$null'  # When return field is null from an InvokeReaderCommand invocation, the value is replaced with this string
-$__DbReaderInfoTableName = 'PsBoundDbInfos'
+$__DbReaderInfoTableName = '__PsBoundDbInfos'
 
 $__CommandDeclarations = @{}
 #endregion

@@ -423,6 +423,94 @@ Describe '[MagicDbProp()]' {
                     )
                 }
             }
+        }, 
+        @{
+            testname = 'ValueFromPipelineByPropertyName works'
+            Commands = {
+                [PSCustomObject] @{ CustomerId = 123 } | Get-Customer
+            } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                    SELECT
+                        CustomerId AS CustomerId,
+                        FirstName AS FirstName,
+                        LastName AS LastName,
+                        Title AS Title
+                    FROM
+                        Customers
+                    WHERE
+                        ((CustomerId = @CustomerId0))
+                '
+                ExpectedParams = @{
+                    '@CustomerId0' = '123'
+                }
+            }
+            Module = {
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+                DbReaderCommand Get-Customer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp()]
+                        [Parameter(ValueFromPipelineByPropertyName)]
+                        [int] $CustomerId,
+                        [MagicDbProp()]
+                        [string] $FirstName,
+                        [MagicDbProp()]
+                        [string] $LastName,
+                        [MagicDbProp()]
+                        [string] $Title
+                    )
+                }
+            }
+        },
+        @{
+            testname = 'ValueFromPipeline works'
+            Commands = {
+                123 | Get-Customer
+            } 
+            ExpectedResults = @{
+                ExpectedQuery = '
+                    SELECT
+                        CustomerId AS CustomerId,
+                        FirstName AS FirstName,
+                        LastName AS LastName,
+                        Title AS Title
+                    FROM
+                        Customers
+                    WHERE
+                        ((CustomerId = @CustomerId0))
+                '
+                ExpectedParams = @{
+                    '@CustomerId0' = '123'
+                }
+            }
+            Module = {
+                . "$PSScriptRoot\..\DatabaseReporter.ps1"
+
+                DbReaderCommand Get-Customer {
+                    [MagicDbInfo(
+                        FromClause = 'FROM Customers',
+                        DbConnectionString = 'FakeConnectionString',
+                        DbConnectionType = 'System.Data.SqlClient.SqlConnection'
+                    )]
+                    param(
+                        [MagicDbProp()]
+                        [Parameter(ValueFromPipeline)]
+                        [int] $CustomerId,
+                        [MagicDbProp()]
+                        [string] $FirstName,
+                        [MagicDbProp()]
+                        [string] $LastName,
+                        [MagicDbProp()]
+                        [string] $Title
+                    )
+                }
+            }
         }
 
 <#
