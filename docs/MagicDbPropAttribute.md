@@ -5,7 +5,7 @@ A fake attribute named [MagicDBProp()] must be added to each parameter that corr
 DbReaderCommand Get-TestData {
     [MagicDbInfo(FromClause='Test')]
     param(
-        [MagicDbInfo()]
+        [MagicDbProp()]   # Adding this wires up the command to the SELECT statement
         $TableColumn
     )
 }
