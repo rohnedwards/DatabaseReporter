@@ -321,56 +321,29 @@ In the future, this function will probably take on more work...
 $StandardArgumentCompleter = {
     param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameter)
 
-#"$commandName`:$parameterName`:" | Out-File $DebugFile -Append
-#"    $wordToComplete" | Out-File $DebugFile -Append
-#"" | Out-File $DebugFile -Append
-<#
-    # TabExpansion++ screws up the bound scriptblock right now, so we don't have
-    # direct module access. This is workaround:
-    $CommandDeclarations = & (Get-Module DatabaseReporter) { $CommandDeclarations }
-#>
+    $PropertyParameters = $__CommandDeclarations[$commandName].PropertyParameters
 
-    $ValidParameters = $__CommandDeclarations[$commandName].PropertyParameters.Values.PropertyName | Select-Object -Unique
-
-    # Keep track of the words to return as completions. This changes based on the name of the current
-    # parameter, and even based on previously bound parameters
-    $PotentialWordsToComplete = New-Object System.Collections.ArrayList
+    $ValidResults = $PotentialResults = if ($parameterName -eq 'Negate') {
+        # Negate works against the actual parameter names
+        $PropertyParameters.Keys
+    }
+    else {
+        # And OrderBy and GroupBy work off of the column names
+        $PropertyParameters.Values.PropertyName | Sort-Object -Unique
+    }
 
     if ($parameterName -eq 'OrderBy' -and $fakeBoundParameter.ContainsKey('GroupBy')) {
         # When working on -OrderBy and -GroupBy has been specified, you can only use
         # parameters from -GroupBy and the 'Count' alias (which needs to be configurable,
         # but that's for a different day)
-        foreach ($GroupByParam in $fakeBoundParameter['GroupBy']) {
-            $null = $PotentialWordsToComplete.Add($GroupByParam)
-        }
-        $null = $PotentialWordsToComplete.Add("Count")
+        $PotentialResults = @($fakeBoundParameter['GroupBy']) + 'Count'
+        $ValidResults = @($ValidResults) + 'Count'
     }
-    else {
-
-        # Parameters that have already been specified will show up first:
-        $fakeBoundParameter.Keys | Where-Object { $_ -and $_ -in $ValidParameters } | ForEach-Object {
-            $null = $PotentialWordsToComplete.Add($_)
-        }
-    
-        # Negate should only complete on parameters that have been specified, so
-        # don't add any more potentials if that's the current parameterName
-        if ($parameterName -ne "Negate") {
-            $ValidParameters | Where-Object { $_ -notin $fakeBoundParameter.Keys } | ForEach-Object {
-                $null = $PotentialWordsToComplete.Add($_)
-            }
-        }
-        else {
-            # There's a problem with -Negate and param names that don't match the DB column names, e.g.,
-            # DateTime columns will get two parameters (a <Column>Before and <Column>After).
-            # Problem is that $ValidParameters contains the column names, which you want for -GroupBy and 
-            # -OrderBy.
-            # This would get the valid -Negate parameters: $__CommandDeclarations[$commandName].PropertyParameters.Keys
-            #
-            # This is a fairly easy problem to solve, but the completer's code needs to be refactored.
-        }
+    elseif ($parameterName -eq 'Negate') {
+        $PotentialResults = $fakeBoundParameter.Keys | Sort-Object -Unique
     }
 
-    $PotentialWordsToComplete | Where-Object { $_ -like "*${wordToComplete}*" } | ForEach-Object {
+    $PotentialResults | Where-Object { $_ -in $ValidResults -and $_ -like "*${wordToComplete}*" } | ForEach-Object {
         New-Object System.Management.Automation.CompletionResult (
             $_,
             $_,
