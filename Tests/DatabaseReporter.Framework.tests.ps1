@@ -3,8 +3,12 @@ Describe 'Framework Health' {
         # Right now this test has no way of passing. The goal is going to be to minimize the
         # amount of module scope pollution, but it will never make it down to 0
 
-        $AllowedVariables = @()
-        $AllowedCommands = @()
+        $AllowedVariables = @(
+            'DBRInfo' 
+        )
+        $AllowedCommands = @(
+            'DbReaderCommand' 
+        )
 
         $Module = New-Module {
             $__VariablesBefore = Get-Variable -Scope Script
@@ -12,7 +16,7 @@ Describe 'Framework Health' {
 
             . "$PSScriptRoot\..\DatabaseReporter.ps1"
 
-            $__VariablesAfter = Get-Variable -Scope Script | Where-Object Name -notin '__VariablesBefore', '__VariablesAfter'
+            $__VariablesAfter = Get-Variable -Scope Script | Where-Object Name -notin '__VariablesBefore', '__CommandsBefore'
             $__CommandsAfter = Get-Command
 
             Export-ModuleMember -Variable *

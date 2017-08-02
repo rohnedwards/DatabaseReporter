@@ -1,11 +1,35 @@
-﻿
+﻿if ($PSVersionTable.PSVersion.Major -lt 3) {
+    throw "Unsupported PowerShell version! PowerShell v3.0 or greater is required to use the Database Reporter Framework!"
+}
 
-if (Get-Command Register-ArgumentCompleter -ErrorAction SilentlyContinue) {
-    $TabExpansionAvailable = $true
+New-Module -Name DatabaseReporterFramework {
+<#
+    This dynamic module holds DBRF session information as a way to prevent 
+    polluting the calling/parent module's scope so that that module doesn't
+    have to worry about any member conflicts with the DBRF.
+
+    MOVE THIS TO REAL DOCUMENTATION SECTION:
+        Variables exported:
+        $DBRInfo
+            A hash table that contains information about the framework
+
+#>
+
+    $DBRInfo = @{
+        Version = [version] '0.1.20170731'
+    }
+    Export-ModuleMember -Variable DBRInfo
+
+    # As long as PS v3/4 are supported, we can't depend on Register-ArgumentCompleter
+    # to always be available.
+    $DBRInfo.TabExpansionAvailable = if (Get-Command Register-ArgumentCompleter -ErrorAction SilentlyContinue) {
+        $true
+    }
+    else {
+        $false
+    }
 }
-else {
-    $TabExpansionAvailable = $false
-}
+
 
 # Call this to ensure nothing is exported from the module by default. Each call
 # to DbReaderCommand will manually export that command as the module is being
@@ -727,7 +751,7 @@ else {
     $null = New-Item function: -Name script:$CommandName -Value $FinalCommandScriptBlock -Force 
     Export-ModuleMember $CommandName
 
-    if ($TabExpansionAvailable) {
+    if ($DBRInfo.TabExpansionAvailable) {
         foreach ($ParamName in Write-Output GroupBy, OrderBy, Negate) {
             Register-ArgumentCompleter -CommandName $CommandName -ParameterName $ParamName -ScriptBlock $BoundStandardCompleter
         }
