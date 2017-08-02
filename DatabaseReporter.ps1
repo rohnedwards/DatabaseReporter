@@ -17,6 +17,8 @@ New-Module -Name DatabaseReporterFramework {
 
     $DBRInfo = @{
         Version = [version] '0.1.20170731'
+        # When a returned column is null, this string is returned instead:
+        OutputNullReplacementString = '$null'
     }
     Export-ModuleMember -Variable DBRInfo
 
@@ -42,6 +44,9 @@ New-Module -Name DatabaseReporterFramework {
         DbFormatTableInfo = 'MagicDbFormatTableColumn'
     }
 
+$__DbReaderInfoTableName = '__PsBoundDbInfos'
+
+$__CommandDeclarations = @{}
 }
 
 
@@ -50,12 +55,6 @@ New-Module -Name DatabaseReporterFramework {
 # imported.
 Export-ModuleMember
 
-#region Constants/script-scope variables
-$__OutputNullReplacementString = '$null'  # When return field is null from an InvokeReaderCommand invocation, the value is replaced with this string
-$__DbReaderInfoTableName = '__PsBoundDbInfos'
-
-$__CommandDeclarations = @{}
-#endregion
 
 #region Reference Scriptblock and Standard Argument completer
 $ReferenceCommandScriptBlock = [scriptblock]::Create({
@@ -861,7 +860,7 @@ function InvokeReaderCommand {
                     $Name = $Reader.GetName($i)
                     $Value = $Reader.GetValue($i)
 
-                    if ([System.DBNull]::Value.Equals($Value)) { $Value = $script:__OutputNullReplacementString }
+                    if ([System.DBNull]::Value.Equals($Value)) { $Value = $script:DBRInfo.OutputNullReplacementString }
 
                     if ($RecordObjectProperties.Contains($Name) -and $RecordObjectProperties[$Name] -ne $Value) {
                         # If there's a duplicate, but the value is the same, don't worry about it and keep moving.
