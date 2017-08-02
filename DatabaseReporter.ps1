@@ -28,6 +28,20 @@ New-Module -Name DatabaseReporterFramework {
     else {
         $false
     }
+
+    # Valid command attributes. If you don't like the default names, here's where you can
+    # change them
+    $CommandAttributes = @{
+        DbCommandInfoAttributeName = 'MagicDbInfo'
+        HelpAttributeName = 'MagicPsHelp'
+    }
+
+    $ParameterAttributes = @{
+        DbComparisonSuffixAttributeName = 'MagicDbComparisonSuffix'
+        DbColumnProperty = 'MagicDbProp'
+        DbFormatTableInfo = 'MagicDbFormatTableColumn'
+    }
+
 }
 
 
@@ -37,13 +51,6 @@ New-Module -Name DatabaseReporterFramework {
 Export-ModuleMember
 
 #region Constants/script-scope variables
-$__FakeAttributes = @{
-    DbCommandInfoAttributeName = 'MagicDbInfo'
-    DbComparisonSuffixAttributeName = 'MagicDbComparisonSuffix'
-    HelpAttributeName = 'MagicPsHelp'
-    DbColumnProperty = 'MagicDbProp'
-    DbFormatTableInfo = 'MagicDbFormatTableColumn'
-}
 $__OutputNullReplacementString = '$null'  # When return field is null from an InvokeReaderCommand invocation, the value is replaced with this string
 $__DbReaderInfoTableName = '__PsBoundDbInfos'
 
@@ -418,7 +425,7 @@ function DbReaderCommand {
     }
 
     # At this point, we know the comment based help for the reference command and the definition that
-    # was passed in. The param() block can still have a help attribute decoration (see $__FakeAttributes.HelpAttributeName
+    # was passed in. The param() block can still have a help attribute decoration (see $CommandAttributes.HelpAttributeName
     # for the name to use). We'll look at that, but we need to start keeping track of parameters defined in 
     # the reference param block, and in the $Definition param block at the same time (we need to strip 
     # non-PowerShell fake attributes from the param definitions)
@@ -516,14 +523,14 @@ function DbReaderCommand {
         $DbConnectionParams.Connection = $ModuleScopedDbConnection
     }
     else {
-        Write-Error ("param() block for '$CommandName' is missing a database connection in the {0} attribute. You must either specify a 'DbConnection' scriptblock that returns a [System.Data.Common.DbConnection] object, or valid 'DbConnectionString' and 'DbConnectionType' strings that can be used to create a connection." -f $__FakeAttributes.DbCommandInfoAttributeName)
+        Write-Error ("param() block for '$CommandName' is missing a database connection in the {0} attribute. You must either specify a 'DbConnection' scriptblock that returns a [System.Data.Common.DbConnection] object, or valid 'DbConnectionString' and 'DbConnectionType' strings that can be used to create a connection." -f $CommandAttributes.DbCommandInfoAttributeName)
         return
     }
 
     $CommandDbInformation.DbConnectionParams = $DbConnectionParams
 
     if (-not $CommandDbInformation.Contains('FromClause')) {
-        Write-Error ("param() block for '$CommandName' is missing a 'FromClause' in the {0} attribute ([{0}(FromClause='<FROM CLAUSE HERE>')] param())" -f $__FakeAttributes.DbCommandInfoAttributeName)
+        Write-Error ("param() block for '$CommandName' is missing a 'FromClause' in the {0} attribute ([{0}(FromClause='<FROM CLAUSE HERE>')] param())" -f $CommandAttributes.DbCommandInfoAttributeName)
         return
     }
     else {
@@ -611,7 +618,7 @@ function DbReaderCommand {
         # have them show up as valid parameters. In those instances, you'd use the 'NoParameter' argument to the attribute.
         # If that argument is used, the parameter text simply isn't added to the actual defined command's param() block, but
         # it is kept track of for SELECT, GROUP BY, and ORDER BY purposes.
-        if ($Parameter.Value.FakeAttributes[$__FakeAttributes.DbColumnProperty] | Where-Object NoParameter -eq $true | Select-Object -first 1) {
+        if ($Parameter.Value.FakeAttributes[$ParameterAttributes.DbColumnProperty] | Where-Object NoParameter -eq $true | Select-Object -first 1) {
             # Do nothing (maybe some verbose or debug output?). User doesn't want this parameter added to the command
         }
         else {
@@ -619,7 +626,7 @@ function DbReaderCommand {
         }
 
 Write-Debug 'Checking for fake attributes'
-        if ($Parameter.Value.FakeAttributes.ContainsKey($__FakeAttributes.DbColumnProperty)) {
+        if ($Parameter.Value.FakeAttributes.ContainsKey($ParameterAttributes.DbColumnProperty)) {
             # The fake attributes that were parsed out are just PSObjects, and there can potentially be
             # multiples (think about how you can have more than one [Parameter()] attribute on a parameter).
             # For the property information, though, we need very specific information, and we can't have more
@@ -642,7 +649,7 @@ Write-Debug 'Checking for fake attributes'
             $DbPropertyInfo = @{
                 FormatTableInfo = New-Object System.Collections.Generic.List[psobject]
             }
-            foreach ($PropertyObject in $Parameter.Value.FakeAttributes[$__FakeAttributes.DbColumnProperty]) {
+            foreach ($PropertyObject in $Parameter.Value.FakeAttributes[$ParameterAttributes.DbColumnProperty]) {
                 foreach ($CurrentAttribute in $KnownAttributes) {
                     if ($PropertyObject.$CurrentAttribute -ne $null) {
                         $DbPropertyInfo[$CurrentAttribute] = $PropertyObject.$CurrentAttribute
@@ -650,7 +657,7 @@ Write-Debug 'Checking for fake attributes'
                 }
             }
 
-            foreach ($FormatTableInfo in $Parameter.Value.FakeAttributes[$__FakeAttributes.DbFormatTableInfo]) {
+            foreach ($FormatTableInfo in $Parameter.Value.FakeAttributes[$ParameterAttributes.DbFormatTableInfo]) {
                 # Multiple format table infos allowed. If no ViewName is specified, use '__DefaultView'
                 $ViewName = if ($FormatTableInfo.ViewName) {
                     $FormatTableInfo.ViewName
@@ -1813,14 +1820,14 @@ function ParseParamBlock {
     }
 
     $DbInfo = [ordered] @{}
-    $ParamBlockAst.Attributes | Where-Object { $_.TypeName.Name -eq $__FakeAttributes.DbCommandInfoAttributeName } | Select-Object -first 1 | ForEach-Object {
+    $ParamBlockAst.Attributes | Where-Object { $_.TypeName.Name -eq $CommandAttributes.DbCommandInfoAttributeName } | Select-Object -first 1 | ForEach-Object {
         foreach ($NamedArg in $_.NamedArguments) {
             $DbInfo[$NamedArg.ArgumentName] = $NamedArg.Argument | GetValueFromAst
         }
     }
     $ReturnHashtable.DbInfo = $DbInfo
 
-    $ReturnHashtable.HelpAttributes = $ParamBlockAst.Attributes | Where-Object { $_.TypeName.Name -eq $__FakeAttributes.HelpAttributeName }
+    $ReturnHashtable.HelpAttributes = $ParamBlockAst.Attributes | Where-Object { $_.TypeName.Name -eq $CommandAttributes.HelpAttributeName }
 
     $ReturnHashtable.Parameters = [ordered] @{}
 
@@ -1873,7 +1880,7 @@ if (-not $DontDoHelp) {          # THIS IS FOR DEBUGGING PURPOSES FOR NOW
             }
 
             $AttributeName = $ParamAttributeAst.TypeName.Name
-            if ($AttributeName -in $__FakeAttributes.Values) {
+            if ($AttributeName -in $ParameterAttributes.Values) {
                 # Must be a fake attribute, so don't write it back out; instead store
                 # it in the fake attrib hashtable
                 
@@ -1890,7 +1897,7 @@ if (-not $DontDoHelp) {          # THIS IS FOR DEBUGGING PURPOSES FOR NOW
                     $FakeAttributes[$AttributeName] = New-Object System.Collections.Generic.List[PSObject]
                 }
 
-                if ($AttributeName -eq $__FakeAttributes.DbColumnProperty) {
+                if ($AttributeName -eq $ParameterAttributes.DbColumnProperty) {
                     # This what the return object will call the property that this DB column info
                     # points to. We need to define it now b/c some parameters are split into to
                     # below.
@@ -1915,31 +1922,27 @@ if (-not $DontDoHelp) {          # THIS IS FOR DEBUGGING PURPOSES FOR NOW
         # NOTE: I don't like the object array for the fake parameters. Think we might just make it so you can only have a single
         #       database reader attribute for a parameter. That would make this MUCH cleaner
         $ParamTextAttributes = $ParamText.ToString()
-        $ParamHashTables = if ($FakeAttributes[$__FakeAttributes.DbComparisonSuffixAttributeName]) {
+        $ParamHashTables = if ($FakeAttributes[$ParameterAttributes.DbComparisonSuffixAttributeName]) {
 
-            if (-not ($GreaterThanSuffix = ($FakeAttributes[$__FakeAttributes.DbComparisonSuffixAttributeName] | Select-Object -last 1).GreaterThan)) {
+            if (-not ($GreaterThanSuffix = ($FakeAttributes[$ParameterAttributes.DbComparisonSuffixAttributeName] | Select-Object -last 1).GreaterThan)) {
                 $GreaterThanSuffix = 'GreaterThan'    
             }
 
-            if (-not ($LessThanSuffix = ($FakeAttributes[$__FakeAttributes.DbComparisonSuffixAttributeName] | Select-Object -last 1).LessThan)) {
+            if (-not ($LessThanSuffix = ($FakeAttributes[$ParameterAttributes.DbComparisonSuffixAttributeName] | Select-Object -last 1).LessThan)) {
                 $LessThanSuffix = 'LessThan'    
             }
 
             $GtAttributes = $FakeAttributes.Clone()
-            $GtAttributes[$__FakeAttributes.DbColumnProperty][-1] | Add-Member -NotePropertyName ComparisonOperator -NotePropertyValue '>' -Force
-#            $FakeAttributes[$__FakeAttributes.DbColumnProperty][-1] | Add-Member -NotePropertyName ComparisonOperator -NotePropertyValue '>' -Force
+            $GtAttributes[$ParameterAttributes.DbColumnProperty][-1] | Add-Member -NotePropertyName ComparisonOperator -NotePropertyValue '>' -Force
             @{
                 ParamName = "${ParamName}${GreaterThanSuffix}"
                 BaseParamName = $ParamName
                 FakeAttributes = $GtAttributes
-#                FakeAttributes = $FakeAttributes
             }
 
-#            $FakeAttributes[$__FakeAttributes.DbColumnProperty][-1] | Add-Member -NotePropertyName ComparisonOperator -NotePropertyValue '<' -Force
-#            $FakeAttributes = $FakeAttributes.Clone()
-            $FakeAttributes[$__FakeAttributes.DbColumnProperty] = $FakeAttributes[$__FakeAttributes.DbColumnProperty].Clone()
-            $FakeAttributes[$__FakeAttributes.DbColumnProperty][-1] = $FakeAttributes[$__FakeAttributes.DbColumnProperty][-1].psobject.Copy()
-            $FakeAttributes[$__FakeAttributes.DbColumnProperty][-1].ComparisonOperator = '<'
+            $FakeAttributes[$ParameterAttributes.DbColumnProperty] = $FakeAttributes[$ParameterAttributes.DbColumnProperty].Clone()
+            $FakeAttributes[$ParameterAttributes.DbColumnProperty][-1] = $FakeAttributes[$ParameterAttributes.DbColumnProperty][-1].psobject.Copy()
+            $FakeAttributes[$ParameterAttributes.DbColumnProperty][-1].ComparisonOperator = '<'
             @{
                 ParamName = "${ParamName}${LessThanSuffix}"
                 BaseParamName = $ParamName
@@ -1966,7 +1969,7 @@ if (-not $DontDoHelp) {          # THIS IS FOR DEBUGGING PURPOSES FOR NOW
             $ParamType = $ParamAst.StaticType.FullName -as [type]
             $ScalarType = if ($ParamType.GetElementType()) { $ParamType.GetElementType() } else { $ParamType }
 
-            if ($FakeAttributes.ContainsKey($__FakeAttributes.DbColumnProperty)) {
+            if ($FakeAttributes.ContainsKey($ParameterAttributes.DbColumnProperty)) {
                 # For now, all DBColumnProperty parameters are arrays. This is a limitation of
                 # how DbReaderInfo is being snuck in, and hopefully can be removed at some point
                 if (-not $ParamType.IsArray) {
@@ -1976,7 +1979,7 @@ if (-not $DontDoHelp) {          # THIS IS FOR DEBUGGING PURPOSES FOR NOW
 
             $null = $ParamText.AppendLine('[{0}]' -f $ParamType.FullName)
 
-            if ($FakeAttributes.ContainsKey($__FakeAttributes.DbColumnProperty)) {
+            if ($FakeAttributes.ContainsKey($ParameterAttributes.DbColumnProperty)) {
                 # Split the check b/c type constraint needs to come before the transformation for v3/4 attribute order bug
 
                 # Put DB Reader info tranformation in
