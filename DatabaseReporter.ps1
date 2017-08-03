@@ -1847,26 +1847,7 @@ $(
         #>
 
         end {
-            $ModuleDefaults = GetModuleSettingsDictionary
-            if ($ModuleDefaults -is [System.Collections.IDictionary]) {
-                $ModuleDefaults['DbConnection']
-            }
-        }
-    }
-
-    function GetModuleSettingsDictionary {
-        end {
-            $DictionaryVariableName = '__DatabaseReaderModuleSettings__' 
-
-            $SettingsDictionary = Get-Variable -Name $DictionaryVariableName -Scope script -ErrorAction SilentlyContinue -ValueOnly
-            if ($null -eq $SettingsDictionary) {
-                # Must not exist, so create it!
-                Write-Verbose "Creating '${DictionaryVariableName}' settings dictionary..."
-                $SettingsDictionary = @{}
-                Set-Variable -Name $DictionaryVariableName -Value $SettingsDictionary -Scope script
-            }
-
-            Write-Output $SettingsDictionary
+            $DBRInfo.DbConnection
         }
     }
 
@@ -1912,10 +1893,10 @@ $(
                 return
             }
 
-            $ModuleDefaults = GetModuleSettingsDictionary
-            $ModuleDefaults['DbConnection'] = $ReturnObject
+            $DBRInfo.DbConnection = $ReturnObject
         }
     }
+    Export-ModuleMember -Function Set-DbReaderConnection, Get-DbReaderConnection
 } {}.Module
 
 function DbReaderCommand {
