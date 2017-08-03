@@ -24,6 +24,7 @@ $DBRModule = New-Module -Name DatabaseReporterFramework {
         Version = [version] '0.1.20170731'
         # When a returned column is null, this string is returned instead:
         OutputNullReplacementString = '$null'
+        ParentModule = $args[0]
     }
     Export-ModuleMember -Variable DBRInfo
 
@@ -1915,7 +1916,7 @@ $(
             $ModuleDefaults['DbConnection'] = $ReturnObject
         }
     }
-}
+} {}.Module
 
 function DbReaderCommand {
     param(
@@ -1928,6 +1929,9 @@ function DbReaderCommand {
     if ($Definition.Ast -isnot [System.Management.Automation.Language.ScriptBlockAst]) {
         throw "-Definition must be provided as a scriptblock!"
     }
+
+    $ParameterAttributes = & $DBRModule { $ParameterAttributes }
+    $CommandAttributes = & $DBRModule { $CommandAttributes }
 
     $NewCommandStringBuilder = New-Object System.Text.StringBuilder
     $DateParametersThatNeedCompleter = New-Object System.Collections.Generic.List[string]
@@ -1953,8 +1957,8 @@ function DbReaderCommand {
     # for the name to use). We'll look at that, but we need to start keeping track of parameters defined in 
     # the reference param block, and in the $Definition param block at the same time (we need to strip 
     # non-PowerShell fake attributes from the param definitions)
-    $ReferenceCommandParsedParamBlock = ParseParamBlock $ReferenceCommandScriptBlock.Ast.ParamBlock -CommandName $CommandName
-    $DefinitionParsedParamBlock = ParseParamBlock $Definition.Ast.ParamBlock -CommandName $CommandName
+    $ReferenceCommandParsedParamBlock = & $DBRModule { ParseParamBlock $args[0] -CommandName $args[1] } $ReferenceCommandScriptBlock.Ast.ParamBlock $CommandName
+    $DefinitionParsedParamBlock = & $DBRModule { ParseParamBlock $args[0] -CommandName $args[1] } $Definition.Ast.ParamBlock $CommandName
 
     # Help merging order is 
     #  1. comment block help from reference command
@@ -1962,11 +1966,11 @@ function DbReaderCommand {
     #  3. comment block help from definition
     #  4. fake help attribute from reference command
     foreach ($HelpAttribute in $ReferenceCommandParsedParamBlock.HelpAttributes) {
-        MergeHelpInfo -HelpInfo $HelpInfo -HelpAttribute $HelpAttribute
+        & $DBRModule { MergeHelpInfo -HelpInfo $args[0] -HelpAttribute $args[1] } $HelpInfo $HelpAttribute
     }
     
     # Next, overwrite any help fields that were defined in $Definition
-    MergeHelpInfo -HelpInfo $HelpInfo -UpdatedHelpInfo $DefinitionHelpInfo
+    & $DBRModule { MergeHelpInfo -HelpInfo $args[0] -UpdatedHelpInfo $args[1] } $HelpInfo $DefinitionHelpInfo
 
     foreach ($HelpAttribute in $DefinitionParsedParamBlock.HelpAttributes) {
         MergeHelpInfo -HelpInfo $HelpInfo -HelpAttribute $HelpAttribute
@@ -2023,8 +2027,9 @@ function DbReaderCommand {
         $DbConnectionParams.Connection = $DbConnectionObject
     }
     elseif ($CommandDbInformation.Contains('DbConnectionString') -and $CommandDbInformation.Contains('DbConnectionType')) {
-        $ConnectionString = $CommandDbInformation['DbConnectionString'] | EvaluateAttributeArgumentValue -OutputAs string -LimitAstToType VariableExpressionAst -LimitNumberOfElements 1
-        $ConnectionType = $CommandDbInformation['DbConnectionType'] | EvaluateAttributeArgumentValue -OutputAs string -LimitAstToType VariableExpressionAst -LimitNumberOfElements 1 | AsDbConnectionType
+
+        $ConnectionString = & $DBRModule { EvaluateAttributeArgumentValue -OutputAs string -LimitAstToType VariableExpressionAst -LimitNumberOfElements 1 -InputObject $args[0] } $CommandDbInformation['DbConnectionString'] 
+        $ConnectionType = & $DBRModule { EvaluateAttributeArgumentValue -OutputAs string -LimitAstToType VariableExpressionAst -LimitNumberOfElements 1 -InputObject $args[0] | AsDbConnectionType } $CommandDbInformation['DbConnectionType']
 
         if ($ConnectionString -eq $null) {
             Write-Error "Unable to get a connection string from value: $($CommandDbInformation['DbConnectionString'])"
@@ -2273,11 +2278,13 @@ Write-Debug 'Checking for fake attributes'
             }
         }
     }
-
+<#
     $FinalCommandScriptBlock = [scriptblock]::Create($NewCommandStringBuilder.ToString())
 
     # Bind it to the module
     $FinalCommandScriptBlock = (& { $PSCmdlet.MyInvocation.MyCommand.Module }).NewBoundScriptBlock($FinalCommandScriptBlock)
+#>
+    $FinalCommandScriptBlock = $DBRModule.NewBoundScriptBlock([scriptblock]::Create($NewCommandStringBuilder.ToString()))
     
     $null = New-Item function: -Name script:$CommandName -Value $FinalCommandScriptBlock -Force 
     Export-ModuleMember $CommandName
@@ -2310,8 +2317,8 @@ Write-Debug 'Checking for fake attributes'
         }
     }
 
-    # Stash the information in the module scope:
-    $__CommandDeclarations[$CommandName] = $CommandDbInformation
+    # Stash the information in the DBR module's scope:
+    & $DBRModule { $__CommandDeclarations[$args[0]] = $args[1] } $CommandName $CommandDbInformation
 }
 
 
