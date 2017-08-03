@@ -10,7 +10,7 @@ Describe 'DB Reporter DBConnection handling' {
             . "$PSScriptRoot\..\DatabaseReporter.ps1"
         } 
 
-        & $Module { $args[0] | AsDbConnectionType } $InputType | Should Not BeNullOrEmpty
+        & $Module { & $DBRModule { AsDbConnectionType $args[0] } $args[0] } $InputType | Should Not BeNullOrEmpty
     } -TestCases @{
         Description = 'SqlConnection'
         InputType = 'SqlConnection' 

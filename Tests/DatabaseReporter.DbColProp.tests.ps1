@@ -301,7 +301,7 @@ Describe '[MagicDbProp()]' {
 
                 . "$PSScriptRoot\..\DatabaseReporter.ps1"
 
-                $__FakeAttributes.DbColumnProperty = 'RenamedProp'
+                & $DBRModule { $ParameterAttributes.DbColumnProperty = 'RenamedProp' }
                 DbReaderCommand Get-Customer {
                     [MagicDbInfo(
                         FromClause = 'FROM Customers',

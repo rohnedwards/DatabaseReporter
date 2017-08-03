@@ -25,9 +25,7 @@ Describe 'Argument Completion' {
         }
     }
 
-    # At some point the framework stuff will be hidden behind a submodule, and
-    # this code to get at the completer will need to be tweaked
-    $ArgCompleter = & $Module { $StandardArgumentCompleter }
+    $ArgCompleter = & $Module { & $DBRModule { $StandardArgumentCompleter } }
 
     $AllParametersDict = & $Module { Get-Command Get-Customer | Select-Object -ExpandProperty Parameters }
     $NonCommonParameterNames = $AllParametersDict.Keys | Where-Object {
@@ -35,7 +33,7 @@ Describe 'Argument Completion' {
         $_ -notin [System.Management.Automation.Cmdlet]::OptionalCommonParameters -and
         $_ -notin 'Negate', 'GroupBy', 'OrderBy', 'ReturnSqlQuery'
     }
-    $ColumnParameters = & $Module { $__CommandDeclarations.'Get-Customer'.PropertyParameters }
+    $ColumnParameters = & $Module { & $DBRModule { $__CommandDeclarations.'Get-Customer'.PropertyParameters } }
     $ColumnNames = $ColumnParameters.Values | ForEach-Object PropertyName | Sort-Object -Unique
 
     It 'GroupBy Offers All Parameters (Empty)' {

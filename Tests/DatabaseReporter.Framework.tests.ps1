@@ -5,6 +5,7 @@ Describe 'Framework Health' {
 
         $AllowedVariables = @(
             'DBRInfo' 
+            'DBRModule'
         )
         $AllowedCommands = @(
             'DbReaderCommand' 
