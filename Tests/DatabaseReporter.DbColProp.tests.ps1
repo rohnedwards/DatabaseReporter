@@ -33,6 +33,12 @@ Describe '[MagicDbProp()]' {
         $TempModule = New-Module -Name $TempModuleName -ScriptBlock $Module
         $TempModule | Import-Module -Force
 
+        # Big change to module structure (InvokeReaderCommand isn't at the top level of the
+        # module anymore...it's tucked away into a helper module). This was already a crappy
+        # way to do these tests, and it's getting even crappier. Gotta work on fixing this...
+        $DBRModule = & $TempModule { $DBRModule }
+        Import-Module $DBRModule
+
         Mock InvokeReaderCommand {
             # This helps with building the tests. If the module code had this
             # variable set to true, then dump the params passed to InvokeReaderCommand:
@@ -44,12 +50,12 @@ Describe '[MagicDbProp()]' {
                         Write-Host ('    {0}: {1}' -f $QueryParamEntry.Name, $QueryParamEntry.Value)
                 }
             }
-        } -ModuleName $TempModule.Name
+        } -ModuleName $DBRModule.Name
 
         & $Commands
 
         foreach ($CurrResult in $ExpectedResults) {
-            Assert-MockCalled InvokeReaderCommand -ModuleName $TempModule.Name -ParameterFilter {
+            Assert-MockCalled InvokeReaderCommand -ModuleName $DBRModule.Name -ParameterFilter {
                 ($Query | Test-QueryMatch $CurrResult.ExpectedQuery) -and
                 ($QueryParameters | Test-DictionaryMatch $CurrResult.ExpectedParams)
             }

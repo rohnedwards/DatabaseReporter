@@ -7,7 +7,7 @@
 # imported.
 Export-ModuleMember
 
-$DBRModule = New-Module -Name DatabaseReporterFramework {
+$DBRModule = New-Module {
 <#
     This dynamic module holds DBRF session information as a way to prevent 
     polluting the calling/parent module's scope so that that module doesn't
