@@ -2272,11 +2272,11 @@ Write-Debug 'Checking for fake attributes'
 
     if ($DBRInfo.TabExpansionAvailable) {
         foreach ($ParamName in Write-Output GroupBy, OrderBy, Negate) {
-            Register-ArgumentCompleter -CommandName $CommandName -ParameterName $ParamName -ScriptBlock $BoundStandardCompleter
+            Register-ArgumentCompleter -CommandName $CommandName -ParameterName $ParamName -ScriptBlock (& $DBRModule { $BoundStandardCompleter })
         }
 
         foreach ($ParamName in $DateParametersThatNeedCompleter) {
-            Register-ArgumentCompleter -CommandName $CommandName -ParameterName $ParamName -ScriptBlock $BoundDateTimeCompleter
+            Register-ArgumentCompleter -CommandName $CommandName -ParameterName $ParamName -ScriptBlock (& $DBRModule { $BoundDateTimeCompleter })
         }
     }
 
