@@ -1913,6 +1913,7 @@ function DbReaderCommand {
 
     $ParameterAttributes = & $DBRModule { $ParameterAttributes }
     $CommandAttributes = & $DBRModule { $CommandAttributes }
+    $ReferenceCommandScriptBlock = & $DBRModule { $ReferenceCommandScriptBlock }
 
     $NewCommandStringBuilder = New-Object System.Text.StringBuilder
     $DateParametersThatNeedCompleter = New-Object System.Collections.Generic.List[string]
