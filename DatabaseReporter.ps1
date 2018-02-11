@@ -2286,7 +2286,7 @@ Write-Debug 'Checking for fake attributes'
     if ($PSTypeName) {
         $CommandDbInformation.PropertyParameters.Values.FormatTableInfo | Group-Object ViewName | ForEach-Object {
             $TempFile = "$env:temp\db_reader_${pstypename}_format_file.ps1xml"
-            New-TableFormatXml -MemberType $PsTypeName -ViewName $_.Name -TableInfo $_.Group.ColumnDefinition |
+            & $DBRModule { New-TableFormatXml -MemberType $args[0] -ViewName $args[1] -TableInfo $args[2] } $PsTypeName $_.Name $_.Group.ColumnDefinition |
                 Out-File -FilePath $TempFile -Force
             Update-FormatData -PrependPath $TempFile
 
