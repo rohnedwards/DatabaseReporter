@@ -2,7 +2,7 @@ Describe 'Argument Completion' {
 
     # For now, one monolithic module will be used for all the testing
     $Module = New-Module {
-        . "$pwd\DatabaseReporter.ps1"
+        . "$PSScriptRoot\..\DatabaseReporter.ps1"
 
         DbReaderCommand Get-Customer {
             [MagicDbInfo(FromClause = 'FROM DoesntMatter',
