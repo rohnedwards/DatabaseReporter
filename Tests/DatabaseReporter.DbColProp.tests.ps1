@@ -563,7 +563,7 @@ Describe '[MagicDbProp()]' {
                         [string] $LastName
                     )
                 }
-            }
+            } -ErrorAction Stop
         } | Should Throw
 
         if ($CurrMod) {

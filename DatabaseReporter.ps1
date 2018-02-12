@@ -2147,22 +2147,37 @@ Write-Debug 'Checking for fake attributes'
             # part where the information is error checked and normalized. If multiples are defined, the
             # order will matter (last one wins)
 
-            $KnownAttributes = @(
-                'ColumnName'      # The name of the column (used in SELECT block)
-                'ComparisonOperator'
-                'ConditionalOperator'
-                'TransformArgument'
-                'AllowWildcards'
-                'PropertyName'
-            )
+            # Attribute name is key and any requirement for the attribute is value ($null means
+            # no requirements)
+            $KnownAttributes = @{
+                'ColumnName' = $null     # The name of the column (used in SELECT block)
+                'ComparisonOperator' = $null
+                'ConditionalOperator' = $null
+                'TransformArgument' = { $_ -as [scriptblock] }
+                'AllowWildcards' = $null
+                'PropertyName' = $null
+            }
             
             $DbPropertyInfo = @{
                 FormatTableInfo = New-Object System.Collections.Generic.List[psobject]
             }
             foreach ($PropertyObject in $Parameter.Value.FakeAttributes[$ParameterAttributes.DbColumnProperty]) {
-                foreach ($CurrentAttribute in $KnownAttributes) {
+                foreach ($CurrentAttribute in $KnownAttributes.Keys) {
                     if ($PropertyObject.$CurrentAttribute -ne $null) {
-                        $DbPropertyInfo[$CurrentAttribute] = $PropertyObject.$CurrentAttribute
+                        $TransformSb = $KnownAttributes[$CurrentAttribute] -as [scriptblock]
+
+                        if ($null -eq $TransformSb) {
+                            $TransformSb = { $_ }  # Just return the original
+                        }
+
+                        $RawValue = $PropertyObject.$CurrentAttribute
+                        $TransformedValue = $RawValue | ForEach-Object $TransformSb
+                        if ($null -ne $TransformedValue) {
+                            $DbPropertyInfo[$CurrentAttribute] = $TransformedValue
+                        }
+                        else {
+                            throw "Error handling '${CurrentAttribute}' attribute on '$($Parameter.Name)' parameter for '${CommandName}' command: '$($RawValue.ToString())' is not valid"
+                        }
                     }
                 }
             }
