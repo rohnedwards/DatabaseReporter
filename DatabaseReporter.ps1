@@ -454,10 +454,9 @@ Parameters:
 
             if ($PSBoundParameters.ContainsKey('QueryParameters')) {
                 foreach ($QueryParamEntry in $QueryParameters.GetEnumerator()) {
-                    $Param = New-Object System.Data.SqlClient.SqlParameter (
-                        $QueryParamEntry.Name,
-                        $QueryParamEntry.Value
-                    )
+                    $Param = $Command.CreateParameter()
+                    $Param.ParameterName = $QueryParamEntry.Name
+                    $Param.Value = $QueryParamEntry.Value
 
                     $Command.Parameters.Add($Param) | Out-Null
                 }
