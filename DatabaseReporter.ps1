@@ -215,7 +215,15 @@ Explain generic example #2 here
 
             # Add the FROM clause
             $null = $__SqlQuerySb.AppendFormat('FROM{0}', $__JoinSpacingString)
-            $null = $__SqlQuerySb.AppendLine(($__MyCommandInfo.FromClause.FormattedStrings -join $__JoinSpacingString))
+            $FromClause = if ($__MyCommandInfo.FromClause -is [scriptblock]) {
+                & $__MyCommandInfo.FromClause
+            }
+            else {
+                $__MyCommandInfo.FromClause.ToString()
+            }
+
+            $FormattedFromClause = & $DBRModule { $args[0] | FormatFromClause } $FromClause
+            $null = $__SqlQuerySb.AppendLine($FormattedFromClause -join $__JoinSpacingString)
 
             # Get WHERE clause info:
             $__CombinedDbReaderInfo = CombineDbReaderInfo -ParamInfoTable $__PSBoundDbInfos -Negate $Negate
@@ -1664,6 +1672,57 @@ Parameters:
         }
     }
 
+    function FormatFromClause {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory, ValueFromPipeline)]
+            [string[]] $FromClauseText
+        )
+        
+        begin {
+            $FromClauseSb = New-Object System.Text.StringBuilder
+        }
+
+        process {
+            # From clause should always be a single string, but go ahead and prepare just
+            # in case it's multiple strings. This will collect them all and deal with them
+            # in the end{} block
+
+            foreach ($CurrentString in $FromClauseText) {
+                $FromClauseSb.AppendLine($CurrentString) | Out-Null
+            }
+        }
+        
+        end {
+            $FromString = $FromClauseSb.ToString()
+
+            $TrimmedLines = $FromString -split "`r?`n" -match '\S' -replace '\s*$'
+
+            # Not ready to fully "pretty up" the FROM clause (too many different valid formats
+            # to deal with), so, we'll settle on something fairly simple: take original formatting
+            # assuming the start should be left justified. That means figure out if there are any
+            # spaces in front of it (also get rid of FROM if found since FromClause doesn't store
+            # that) and use that as the maximum # of spaces to replace for the other strings
+            #
+            # Project for another day: Fix this condition:
+            # FromClause = 'Table
+            #               JOIN Table2'
+            #
+            # No spaces would be removed from the JOIN line, and the query would be ugly. Since the
+            # spaces don't hurt the query's functionality, we'll revist this another time
+            if ($TrimmedLines[0] -match '^(?<spaces>\s*)(FROM\s*)?(?<therest>.*)$') {
+                $matches.therest
+                $MaxNumberOfSpacesToDelete = [int] $matches.spaces.length
+                for ($i = 1; $i -lt $TrimmedLines.Count; $i++) {
+                    $TrimmedLines[$i] -replace "^\s{0,${MaxNumberOfSpacesToDelete}}"
+                }
+            }
+            else {
+                $TrimmedLines
+            }
+        }
+    }
+
     function ConvertToSimpleXml {
         [CmdletBinding()]
         param(
@@ -2044,44 +2103,7 @@ function DbReaderCommand {
         return
     }
     else {
-        $EvaluatedFromClause = $DefinitionParsedParamBlock.DbInfo['FromClause'] | 
-#            EvaluateAttributeArgumentValue -LimitAstToType StringConstantExpressionAst, ExpandableStringExpressionAst -DontEvaluateScriptBlocks -Verbose -LimitNumberOfElements 1 |
-            Add-Member -MemberType ScriptProperty -Name FormattedStrings -Value {
-                $FromString = if ($this -is [scriptblock]) {
-                    & $this
-                }
-                else {
-                    $this.ToString()
-                }
-            
-                $TrimmedLines = $FromString -split "`r?`n" -match '\S' -replace '\s*$'
-
-                # Not ready to fully "pretty up" the FROM clause (too many different valid formats
-                # to deal with), so, we'll settle on something fairly simple: take original formatting
-                # assuming the start should be left justified. That means figure out if there are any
-                # spaces in front of it (also get rid of FROM if found since FromClause doesn't store
-                # that) and use that as the maximum # of spaces to replace for the other strings
-                #
-                # Project for another day: Fix this condition:
-                # FromClause = 'Table
-                #               JOIN Table2'
-                #
-                # No spaces would be removed from the JOIN line, and the query would be ugly. Since the
-                # spaces don't hurt the query's functionality, we'll revist this another time
-                if ($TrimmedLines[0] -match '^(?<spaces>\s*)(FROM\s*)?(?<therest>.*)$') {
-                    $matches.therest
-                    $MaxNumberOfSpacesToDelete = [int] $matches.spaces.length
-                    for ($i = 1; $i -lt $TrimmedLines.Count; $i++) {
-                        $TrimmedLines[$i] -replace "^\s{0,${MaxNumberOfSpacesToDelete}}"
-                    }
-                }
-                else {
-                    $TrimmedLines
-                }
-        } -PassThru
-
-        $CommandDbInformation['FromClause'] = $EvaluatedFromClause
-
+        $CommandDbInformation['FromClause'] = $DefinitionParsedParamBlock.DbInfo['FromClause']
 
         if ($CommandDbInformation.Contains('PSTypeName')) {
 #            Write-Warning "need to sanitize PSTypeName"
