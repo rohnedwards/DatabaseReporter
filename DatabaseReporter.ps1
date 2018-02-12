@@ -250,7 +250,16 @@ Explain generic example #2 here
 
             $__SqlQuery = $__SqlQuerySb.ToString()
 
-            if ($PSBoundParameters['ReturnSqlQuery']) {
+            if ($PSBoundParameters['ReturnSqlQueryNew']) {
+                # This parameter is only available in debug mode, and it changes the
+                # behavior of the command to just return this string instead of executing
+                # the command
+                [PSCustomObject] @{
+                    Query = $__SqlQuery
+                    Parameters = $__CombinedDbReaderInfo.QueryParameters
+                }
+            }
+            elseif ($PSBoundParameters['ReturnSqlQuery']) {
                 # This parameter is only available in debug mode, and it changes the
                 # behavior of the command to just return this string instead of executing
                 # the command
@@ -2270,6 +2279,7 @@ Write-Debug 'Checking for fake attributes'
     # In debug mode, every command gets a -ReturnSqlQuery parameter that can be used for testing
     if ($DebugMode) {
         $AllParameters.Add("`t[switch] `$ReturnSqlQuery")
+        $AllParameters.Add("`t[switch] `$ReturnSqlQueryNew")
     }
 
     $null = $NewCommandStringBuilder.AppendLine($AllParameters -join ",`n")
