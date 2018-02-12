@@ -390,7 +390,7 @@ Parameters:
                             if ($DbReaderInfoInstance.AllowWildcards) {
                                 # Translate wildcards to valid SQL (this currently assumes WildcardPattern
                                 # can handle this w/o problem
-                                $CurrentValue = (New-Object System.Management.Automation.WildcardPattern $CurrentValue).ToWql()
+                                $CurrentValue = $CurrentValue | WildcardStringToQuery
                             }
 
                             if ($DbReaderInfoInstance.TransformArgument -is [scriptblock]) {
@@ -402,7 +402,7 @@ Parameters:
 
                             # Store the parameter in the hash table and emit the string w/ the
                             # contional operator and parameter name so we can combine it later
-                            '{0} {1} {2}' -f $DbReaderInfoInstance.ColumnName, $DbReaderInfoInstance.ComparisonOperator, $ParamName
+                            NewWhereCondition -DbReaderInfo $DbReaderInfoInstance -ParamName $ParamName
                             $QueryParameters[$ParamName] = $CurrentValue
                         }
                     }
@@ -421,6 +421,49 @@ Parameters:
                 QueryParameters = $QueryParameters
             }
         } 
+    }
+
+    function WildcardStringToQuery {
+    <#
+        Handles converting globbing wildcards * and ? into SQL wildards (by default % and _, but
+        possibly others if there are any RDBM systems that don't use the standard ones)
+
+        Doing normal conversion can be handled by [WildcardPattern] ToWql() method, but that
+        escapes literal _ and % characters according to SQL Server escaping rules, which isn't
+        always what we want.
+
+        This helper function is smart enough to look into command definition info to see how to
+        handle escaping them.
+    #>
+
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory, ValueFromPipeline)]
+            [string] $InputText
+        )
+        process {
+            (New-Object System.Management.Automation.WildcardPattern $InputText).ToWql()
+        }
+    }
+    function NewWhereCondition {
+    <#
+        Allows complex where condition building. Originally, this was as simple as combining
+        the column name, the comparison operator, and the parameter name.
+
+        With support for features like SQLite's ESCAPE clause when using LIKE, the complexity
+        grew and required a helper function to take care of it.
+    #>
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory)]
+            $DbReaderInfoInstance,
+            [Parameter(Mandatory)]
+            [string] $ParamName
+        )
+
+        process {
+            '{0} {1} {2}' -f $DbReaderInfoInstance.ColumnName, $DbReaderInfoInstance.ComparisonOperator, $ParamName
+        }
     }
 
     function InvokeReaderCommand {
