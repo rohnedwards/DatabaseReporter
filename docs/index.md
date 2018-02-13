@@ -7,7 +7,7 @@ Welcome to the DatabaseReporter framework's documentation page.
 The DatabaseReporter framework provides a way to generate advanced PowerShell functions that read from a database without having to do any scripting. Instead, you define the command's parameters and add some framework specific attributes.
 
 #### Attributes
-* [[MagicDbInfo](MagicDbInfo.md)()]
+* [[MagicDbInfo](MagicDbInfoAttribute.md)()]
 * [[MagicDbProp](MagicDbPropAttribute.md)()]
 * [[MagicDbFormatTableColumn](MagicDbFormatTableColumnAttribute.md)()]
 * [[MagicDbComparisonSuffix](MagicDbComparisonSuffixAttribute.md)()]
