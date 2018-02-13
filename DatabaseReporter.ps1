@@ -44,6 +44,10 @@ $DBRModule = New-Module {
         HelpAttributeName = 'MagicPsHelp'
     }
 
+    $DbCommandInfoAttributeProperties = @{
+        WildcardReplacement = 'WildcardReplacementScriptblock'
+    }
+
     $ParameterAttributes = @{
         DbComparisonSuffixAttributeName = 'MagicDbComparisonSuffix'
         DbColumnProperty = 'MagicDbProp'
@@ -388,8 +392,6 @@ Parameters:
                     
                         foreach ($CurrentValue in $DbReaderInfoInstance.Value) {
                             if ($DbReaderInfoInstance.AllowWildcards) {
-                                # Translate wildcards to valid SQL (this currently assumes WildcardPattern
-                                # can handle this w/o problem
                                 $CurrentValue = $CurrentValue | WildcardStringToQuery
                             }
 
@@ -442,7 +444,15 @@ Parameters:
             [string] $InputText
         )
         process {
-            (New-Object System.Management.Automation.WildcardPattern $InputText).ToWql()
+            $Scriptblock = $__MyCommandInfo[$DbCommandInfoAttributeProperties.WildcardReplacement]
+
+            if ($Scriptblock -as [scriptblock]) {
+                $InputText | ForEach-Object $Scriptblock
+            }
+            else {
+                Write-Warning "Unable to perform wildcard replacement for '$($DbReaderInfoCollection.Name)' property because WildcardReplacementScriptblock property was either missing or invalid."
+                $InputText
+            }
         }
     }
     function NewWhereCondition {
@@ -463,6 +473,71 @@ Parameters:
 
         process {
             '{0} {1} {2}' -f $DbReaderInfoInstance.ColumnName, $DbReaderInfoInstance.ComparisonOperator, $ParamName
+        }
+    }
+
+    function GetDefaultAttributeProperty {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory)]
+            [string] $PropertyName,
+            # Optional designator to help specify the DB system (used when default behavior should
+            # be different depending on the RDBMS)
+            [string] $DbSystem
+        )
+
+        end {
+
+            $DefaultKey = '__default__'
+
+            # The $DefaultKey definition should have a default for each attribute property. The other definitions
+            # don't require it, and if the $PropertyName being searched for doesn't exist in the dict for the other
+            # DB system, the function will fall back to the $DefaultKey definition's version
+            $Dict = @{
+                $DefaultKey = @{
+                    $DbCommandInfoAttributeProperties.WildcardReplacement = {
+                        (New-Object System.Management.Automation.WildcardPattern $_).ToWql()
+                    }
+                }
+
+                SQLite = @{
+                    $DbCommandInfoAttributeProperties.WildcardReplacement = {
+                        $WqlString = (New-Object System.Management.Automation.WildcardPattern $_).ToWql()
+
+                        # We're going to use '\' as an escape character, so go ahead and replace any literal
+                        # '\' characters with their escaped equivalent (\\)
+                        $WqlString = $WqlString -replace '\\', '\\'
+
+                        # Wql should have already replaced literal underscores and percent signs with their
+                        # WQL escaped versions ([_] and [%]). Look for those and replace them with backslash
+                        # escaped versions
+                        $WqlString = $WqlString -replace '\[(_|\%)\]', '\$1'
+                        $WqlString
+                    }
+                }
+            }
+
+            $Key = if ($PSBoundParameters.ContainsKey('DbSystem')) {
+                # Put logic here to figure out the key to use. For now, just write out
+                # the -DbSystem parameter value
+                $DbSystem
+            }
+            else {
+                $DefaultKey
+            }
+
+            # NOTE: No type checking is done. If the dictionary contains the wrong default value, too bad :(
+            $ReturnValue = if ($Dict.ContainsKey($Key) -and $Dict[$Key] -is [System.Collections.IDictionary] -and $Dict[$Key].Contains($PropertyName)) {
+                $Dict[$Key][$PropertyName]
+            }
+            elseif ($Dict.ContainsKey($DefaultKey) -and $Dict[$DefaultKey] -is [System.Collections.IDictionary] -and $Dict[$DefaultKey].Contains($PropertyName)) {
+                $Dict[$DefaultKey][$PropertyName]
+            }
+            else {
+                Write-Error "Unable to find ${PropertyName} in default attribute property definition dictionary (checked the following sub dictionaries: $($Key, $DefaultKey | sort -Unique))"
+            }
+
+            $ReturnValue
         }
     }
 
@@ -2159,6 +2234,25 @@ function DbReaderCommand {
 
         if ($CommandDbInformation.Contains('PSTypeName')) {
 #            Write-Warning "need to sanitize PSTypeName"
+        }
+    }
+
+    $AttributePropertyNames = & $DBRModule { $DbCommandInfoAttributeProperties }
+    foreach ($CurrentAttributePropertyKey in $AttributePropertyNames.Keys) {
+
+        $CurrentAttributeProperty = $AttributePropertyNames[$CurrentAttributePropertyKey]
+
+        $ExpectedAttributePropertyType = [object]   # We'll figure out how to handle type validation soon
+
+        if ($CommandDbInformation[$CurrentAttributeProperty] -as $ExpectedAttributePropertyType) {
+            # Current attribute propery was defined, seems to be of the right type, so should be ready to go...
+        }
+        else {
+            if ($CommandDbInformation.Contains($CurrentAttributeProperty)) {
+                # Right now we don't have type validation, but when we have that this will be a helpful command
+                Write-Error "${CurrentAttributeProperty} attribute property was specified for '' command, but wasn't of the expected type, so default value will be used."
+            }
+            $CommandDbInformation[$CurrentAttributeProperty] = & $DBRModule { GetDefaultAttributeProperty -PropertyName $args[0] } $CurrentAttributeProperty
         }
     }
 
