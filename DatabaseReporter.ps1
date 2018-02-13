@@ -1,4 +1,4 @@
-﻿if ($PSVersionTable.PSVersion.Major -lt 3) {
+if ($PSVersionTable.PSVersion.Major -lt 3) {
     throw "Unsupported PowerShell version! PowerShell v3.0 or greater is required to use the Database Reporter Framework!"
 }
 
@@ -226,7 +226,7 @@ Explain generic example #2 here
                 $__MyCommandInfo.FromClause.ToString()
             }
 
-            $FormattedFromClause = & $DBRModule { $args[0] | FormatFromClause } $FromClause
+            $FormattedFromClause = $FromClause | FormatFromClause
             $null = $__SqlQuerySb.AppendLine($FormattedFromClause -join $__JoinSpacingString)
 
             # Get WHERE clause info:
