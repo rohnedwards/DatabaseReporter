@@ -1,4 +1,4 @@
-if ($PSVersionTable.PSVersion.Major -lt 3) {
+﻿if ($PSVersionTable.PSVersion.Major -lt 3) {
     throw "Unsupported PowerShell version! PowerShell v3.0 or greater is required to use the Database Reporter Framework!"
 }
 
@@ -46,6 +46,8 @@ $DBRModule = New-Module {
 
     $DbCommandInfoAttributeProperties = @{
         WildcardReplacement = 'WildcardReplacementScriptblock'
+        WhereConditionBuilder = 'WhereConditionBuilderScriptblock'
+        SqlMode = 'SqlMode'
     }
 
     $ParameterAttributes = @{
@@ -472,7 +474,15 @@ Parameters:
         )
 
         process {
-            '{0} {1} {2}' -f $DbReaderInfoInstance.ColumnName, $DbReaderInfoInstance.ComparisonOperator, $ParamName
+
+            $Scriptblock = $__MyCommandInfo[$DbCommandInfoAttributeProperties.WhereConditionBuilder]
+
+            if ($Scriptblock -as [scriptblock]) {
+                & $Scriptblock $DbReaderInfoInstance.ColumnName $DbReaderInfoInstance.ComparisonOperator $ParamName
+            }
+            else {
+                throw "Unable to build WHERE condition for '$($DbReaderInfoCollection.Name)' property because WhereConditionBuilderScriptblock property was either missing or invalid."
+            }
         }
     }
 
@@ -498,6 +508,10 @@ Parameters:
                     $DbCommandInfoAttributeProperties.WildcardReplacement = {
                         (New-Object System.Management.Automation.WildcardPattern $_).ToWql()
                     }
+
+                    $DbCommandInfoAttributeProperties.WhereConditionBuilder = {
+                        '{0} {1} {2}' -f $args[0], $args[1], $args[2]
+                    }
                 }
 
                 SQLite = @{
@@ -516,6 +530,19 @@ Parameters:
                     }
                 }
             }
+
+            # Add this to SQLite dictionary after the whole thing has been defined to get access
+            # to the default version:
+            $Dict.SQLite[$DbCommandInfoAttributeProperties.WhereConditionBuilder] = [scriptblock]::Create(@"
+                `$Default = & { $($Dict[$DefaultKey][$DbCommandInfoAttributeProperties.WhereConditionBuilder]) } @args
+
+                if (`$args[1] -eq 'LIKE') {
+                    "`${Default} ESCAPE '\'"
+                }
+                else {
+                    `$Default
+                }
+"@)
 
             $Key = if ($PSBoundParameters.ContainsKey('DbSystem')) {
                 # Put logic here to figure out the key to use. For now, just write out
@@ -2238,13 +2265,39 @@ function DbReaderCommand {
     }
 
     $AttributePropertyNames = & $DBRModule { $DbCommandInfoAttributeProperties }
+
+    if (-not $CommandDbInformation.Contains($AttributePropertyNames.SqlMode)) {
+        # This has to be specified before the foreach loop stepping through all of the other attribute
+        # properties below. Without specifying this here, the calls to GetDefaultAttributeProperty won't
+        # work
+        $DbConnectionType = if ($DbConnectionParams.Contains('Connection')){
+            $DbConnectionParams.Connection.GetType().FullName
+        }
+        elseif ($DbConnectionParams.Contains('ConnectionType')) {
+            $DbConnectionParams.ConnectionType
+        }
+        else {
+            Write-Warning "Unable to determine DB connection type for command."
+            ''
+        }
+
+        $CommandDbInformation[$AttributePropertyNames.SqlMode] = switch ($DbConnectionType) {
+
+            'System.Data.SQLite.SQLiteConnection' {
+                'SQLite'
+            }
+
+            default { '' }
+        }
+    }
+
     foreach ($CurrentAttributePropertyKey in $AttributePropertyNames.Keys) {
 
         $CurrentAttributeProperty = $AttributePropertyNames[$CurrentAttributePropertyKey]
 
         $ExpectedAttributePropertyType = [object]   # We'll figure out how to handle type validation soon
 
-        if ($CommandDbInformation[$CurrentAttributeProperty] -as $ExpectedAttributePropertyType) {
+        if ($null -ne ($CommandDbInformation[$CurrentAttributeProperty] -as $ExpectedAttributePropertyType)) {
             # Current attribute propery was defined, seems to be of the right type, so should be ready to go...
         }
         else {
@@ -2252,7 +2305,7 @@ function DbReaderCommand {
                 # Right now we don't have type validation, but when we have that this will be a helpful command
                 Write-Error "${CurrentAttributeProperty} attribute property was specified for '' command, but wasn't of the expected type, so default value will be used."
             }
-            $CommandDbInformation[$CurrentAttributeProperty] = & $DBRModule { GetDefaultAttributeProperty -PropertyName $args[0] } $CurrentAttributeProperty
+            $CommandDbInformation[$CurrentAttributeProperty] = & $DBRModule { GetDefaultAttributeProperty -PropertyName $args[0] -DbSystem $args[1] } $CurrentAttributeProperty $CommandDbInformation[$AttributePropertyNames.SqlMode]
         }
     }
 
