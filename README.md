@@ -1,6 +1,8 @@
 DatbaseReporter
 ===============
 
+NOTE: Please see the documenation page here: https://rohnedwards.github.io/DatabaseReporter/
+
 About
 -----
 The *DatabaseReporter.ps1* file is an addon to a module to make creating PowerShell commands that read from a database simple to generate. While the project contains several files, *DatabaseReporter.ps1* is the only one that is required for operation.
