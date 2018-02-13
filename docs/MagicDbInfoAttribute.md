@@ -16,6 +16,8 @@ DbReaderCommand Get-TestData {
 * [DbConnectionString](#dbconnectionstring)
 * [PSTypeName](#pstypename)
 * [WildcardReplacementScriptblock](#wildcardreplacementscriptblock)
+* [WhereConditionBuilderScriptblock](#whereconditionbuilderscriptblock)
+* [SqlMode](#sqlmode)
 
 <a name="fromclause"></a>
 ## FromClause
@@ -91,6 +93,63 @@ That command's SQL query should change depending on whether or not the -UseAltCu
 <a name="pstypename"></a>
 ## PSTypeName
 
+This takes a string that is inserted into the resulting object's PSTypeNames collection.
+
+If you don't specify a value, one will be calculated based on the name provided to DbReaderCommand.
+
+Using the PSTypeName value has at least two uses:
+* Formatting
+
+  The formatting system requires a PSTypeName (or actual unique type for compiled .NET objects) to utilize default object formatting.
+
+  When using a formatting attribute on a DbReaderCommand's parameter in the param() block, manually specifying a PSTypeName isn't necessary since one will be automatically generated.
+
+* Type validation for input values to other functions. Take this example module:
+ ```
+  $DbLocation = "${PSScriptRoot}\test.sqlite"
+  . $PSScriptRoot\DatabaseReporter.ps1
+  
+  Add-Type -Path "$PSScriptRoot\System.Data.SQLite.dll"
+  Set-DbReaderConnection ([System.Data.SQLite.SQLiteConnection]::new("Data Source=${DbLocation};Version=3;"))
+
+  DbReaderCommand Get-TestData {
+      [MagicDbInfo(
+          FromClause = "TestTable",
+          PSTypeName='MyCustomType'
+      )]
+      param(
+          [MagicDbProp()]
+          [int] $ID,
+          [MagicDbProp()]
+          [MagicDbFormatTableColumn()]
+          [string] $Name
+      )
+  }
+  
+  function Write-TestData {
+      [CmdletBinding()]
+      param(
+          [Parameter(Mandatory, ValueFromPipeline)]
+          [PSTypeName('MyCustomType')] $InputObject
+      )
+  
+      process {
+          $InputObject
+      }
+  }
+  Export-ModuleMember Write-TestData
+  ```
+
+  In this example, the ```Write-TestData``` function should only accept data output from ```Get-TestData``` since all returned objects are of type ```[MyCustomType]```, and there's a ```[PSTypeName('MyCustomType')]``` requirement for input to the ```Write-TestData``` function.
+
+
+<a name="sqlmode"></a>
+## SqlMode
+
+Different RDBM systems have slightly different flavors of SQL. The DatabaseReporter framework hopes to be able to take some of the more common differences into account, and to be able to change default behavior behind the scenes depending on the DB connection properties.
+
+This propery shouldn't have to be used, as the framework should auto detect the proper value to put here. Valid inputs probably won't be documented, but, as of this writing, the only valid input is 'SQLite'. Invalid inputs won't hurt anything, and will cause the behavior lookups revert to default settigns, which are geared towards SQL Server.
+
 <a name="wildcardreplacementscriptblock"></a>
 ## WildcardReplacementScriptblock
 
@@ -124,4 +183,14 @@ That *should* use ```@``` as a wildcard to search for one or more instances, and
 SELECT Email FROM Test WHERE Email LIKE @Email0
 
 /* @Email0 = 'test@%.com' */
+```
+
+<a name="whereconditionbuilderscriptblock"></a>
+## WhereConditionBuilderScriptblock
+
+Don't use this. This was added to work around a specific problem, and it will probably be changed in the future. It's included here because it is possible to override it because of the workaround developed for the specific problem. For the sake of completeness, just know that the following `$args` are passed into any scriptblock defined here:
+```
+$args[0] = ColumnName
+$args[1] = Comparison operator
+$args[2] = Query parameter name
 ```
